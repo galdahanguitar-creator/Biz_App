@@ -2427,8 +2427,9 @@ function App(){
     const startISO=`${ev.date}T${ev.startTime||ev.time||'00:00'}:00`;
     const endISO=`${ev.date}T${ev.endTime||ev.startTime||ev.time||'00:00'}:00`;
     try{
-      await fetch(gcalUrl,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},
+      const resp=await fetch(gcalUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
         body:JSON.stringify({action,bizId:ev.id,title,start:startISO,end:endISO,location:ev.location||'',description:`${et.label}\n${ev.notes||''}`,color:'6'})});
+      if(!resp.ok) console.warn('GCal event sync failed:',resp.status,await resp.text().catch(()=>''));
     }catch(e){ console.warn('GCal sync',e); }
   }
   async function syncLessonToGCal(action,l){
@@ -2436,8 +2437,9 @@ function App(){
     const stu=students.find(s=>s.id===l.sid)||{name:'תלמיד'};
     const endMin=t2m(l.time||'09:00')+(l.durationMins||45);
     try{
-      await fetch(gcalUrl,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},
+      const resp=await fetch(gcalUrl,{method:'POST',headers:{'Content-Type':'text/plain'},
         body:JSON.stringify({action,bizId:'L'+l.id,title:`שיעור - ${stu.name}`,start:`${l.date}T${l.time}:00`,end:`${l.date}T${m2t(endMin)}:00`,location:'',description:stu.name,color:'7'})});
+      if(!resp.ok) console.warn('GCal lesson sync failed:',resp.status,await resp.text().catch(()=>''));
     }catch(e){console.warn('GCal lesson sync',e);}
   }
   async function syncWeekToGCal(wkDate){
