@@ -1865,6 +1865,28 @@ function doPost(e) {
   const [cleanMsg,setCleanMsg]=useState('');
   const [dupMsg,setDupMsg]=useState('');
   const [syncAllMsg,setSyncAllMsg]=useState('');
+  const [hardResetMsg,setHardResetMsg]=useState('');
+  async function hardResetGCal(){
+    if(!gcalUrl)return;
+    setHardResetMsg('שלב 1/3: מוחק מהיומן...');
+    const todayStr=fd(new Date());
+    // מחק הכל מהיומן (כולל כפילויות)
+    const allLessons=lessons.filter(l=>l.date>=todayStr&&l.sid);
+    const allEvents=events.filter(e=>e.date>=todayStr);
+    for(const l of allLessons){ await syncLessonToGCal('delete',l); }
+    for(const ev of allEvents){ await syncEventToGCal('delete',ev); }
+    setHardResetMsg('שלב 2/3: מנקה כפילויות...');
+    // נקה כפילויות ב-Firebase
+    await cleanDuplicateLessons();
+    setHardResetMsg('שלב 3/3: מסנכרן מחדש...');
+    // הוסף מחדש — ללא כפילויות (sid+date+time ייחודי)
+    const seen=new Set();
+    const uniq=lessons.filter(l=>l.date>=todayStr&&['scheduled','pending_cancel'].includes(l.status)&&l.sid).filter(l=>{const k=`${l.sid}_${l.date}_${l.time}`;if(seen.has(k))return false;seen.add(k);return true;});
+    for(const l of uniq){ await syncLessonToGCal('create',l); }
+    for(const ev of allEvents){ await syncEventToGCal('create',ev); }
+    setHardResetMsg(`✓ הושלם! ${uniq.length} שיעורים ו-${allEvents.length} אירועים ביומן`);
+    setTimeout(()=>setHardResetMsg(''),7000);
+  }
   async function handleCleanDups(){
     setDupMsg('מנקה...');
     try{
@@ -1919,10 +1941,10 @@ function doPost(e) {
       </div>
       {gcalUrl&&(
         <div style={{...S.card,border:'1.5px solid #86efac',background:'#f0fdf4'}}>
-          <div style={{fontSize:14,fontWeight:600,marginBottom:6,color:'#166534'}}>🔄 סנכרן הכל ליומן</div>
-          <p style={{fontSize:13,color:'var(--tx2)',margin:'0 0 12px',lineHeight:1.6}}>מעביר את כל השיעורים והאירועים הקיימים ליומן Google. השתמש בזה פעם אחת כדי לאכלס את היומן.</p>
-          <button style={{...S.btn('success'),width:'100%'}} onClick={syncAllToGCal}>🔄 סנכרן הכל עכשיו</button>
-          {syncAllMsg&&<div style={{fontSize:12,marginTop:8,textAlign:'center',color:syncAllMsg.startsWith('✓')?'var(--txS)':'var(--txI)'}}>{syncAllMsg}</div>}
+          <div style={{fontSize:14,fontWeight:600,marginBottom:6,color:'#166534'}}>🔄 איפוס מלא ליומן</div>
+          <p style={{fontSize:13,color:'var(--tx2)',margin:'0 0 12px',lineHeight:1.6}}>מוחק הכל מהיומן, מנקה כפילויות, ומסנכרן מחדש — נקי ומדויק. לחץ פעם אחת.</p>
+          <button style={{...S.btn('success'),width:'100%'}} onClick={hardResetGCal}>🔄 איפוס מלא עכשיו</button>
+          {hardResetMsg&&<div style={{fontSize:12,marginTop:8,textAlign:'center',color:hardResetMsg.startsWith('✓')?'var(--txS)':'var(--txI)'}}>{hardResetMsg}</div>}
         </div>
       )}
       <div style={{...S.card,border:'1.5px solid #fca5a5',background:'#fff5f5'}}>
