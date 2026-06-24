@@ -1864,6 +1864,7 @@ function doPost(e) {
 }`;
   const [cleanMsg,setCleanMsg]=useState('');
   const [dupMsg,setDupMsg]=useState('');
+  const [syncAllMsg,setSyncAllMsg]=useState('');
   async function handleCleanDups(){
     setDupMsg('מנקה...');
     try{
@@ -1877,14 +1878,32 @@ function doPost(e) {
     setCleanMsg('מנקה...');
     const sixMonths=new Date();sixMonths.setMonth(sixMonths.getMonth()+6);
     const cutoff=fd(sixMonths);
-    // מחק שיעורים שמעבר ל-6 חודשים
     const farLessons=lessons.filter(l=>l.date>cutoff&&l.sid);
     for(const l of farLessons){ await syncLessonToGCal('delete',l); }
-    // upsert שיעורים בטווח (מנקה כפילויות)
     const nearLessons=lessons.filter(l=>l.date<=cutoff&&l.date>=fd(new Date())&&['scheduled','pending_cancel'].includes(l.status)&&l.sid);
     for(const l of nearLessons){ await syncLessonToGCal('upsert',l); }
     setCleanMsg(`✓ נוקו ${farLessons.length} שיעורים רחוקים, עודכנו ${nearLessons.length} קרובים`);
     setTimeout(()=>setCleanMsg(''),5000);
+  }
+  async function syncAllToGCal(){
+    if(!gcalUrl)return;
+    setSyncAllMsg('מסנכרן...');
+    const todayStr=fd(new Date());
+    const futureLessons=lessons.filter(l=>l.date>=todayStr&&['scheduled','pending_cancel'].includes(l.status)&&l.sid);
+    const futureEvents=events.filter(e=>e.date>=todayStr);
+    let i=0;
+    for(const l of futureLessons){
+      await syncLessonToGCal('upsert',l);
+      i++;
+      if(i%5===0) setSyncAllMsg(`מסנכרן... ${i}/${futureLessons.length+futureEvents.length}`);
+    }
+    for(const ev of futureEvents){
+      await syncEventToGCal('upsert',ev);
+      i++;
+      if(i%5===0) setSyncAllMsg(`מסנכרן... ${i}/${futureLessons.length+futureEvents.length}`);
+    }
+    setSyncAllMsg(`✓ סונכרנו ${futureLessons.length} שיעורים ו-${futureEvents.length} אירועים`);
+    setTimeout(()=>setSyncAllMsg(''),6000);
   }
   return(
     <div>
@@ -1898,6 +1917,14 @@ function doPost(e) {
         <button style={{...S.btn('primary'),width:'100%'}} onClick={()=>setGcalUrl(url)}>שמור</button>
         {gcalUrl&&<div style={{fontSize:12,color:'var(--txS)',marginTop:8,textAlign:'center'}}>✓ URL שמור — הסנכרון פעיל</div>}
       </div>
+      {gcalUrl&&(
+        <div style={{...S.card,border:'1.5px solid #86efac',background:'#f0fdf4'}}>
+          <div style={{fontSize:14,fontWeight:600,marginBottom:6,color:'#166534'}}>🔄 סנכרן הכל ליומן</div>
+          <p style={{fontSize:13,color:'var(--tx2)',margin:'0 0 12px',lineHeight:1.6}}>מעביר את כל השיעורים והאירועים הקיימים ליומן Google. השתמש בזה פעם אחת כדי לאכלס את היומן.</p>
+          <button style={{...S.btn('success'),width:'100%'}} onClick={syncAllToGCal}>🔄 סנכרן הכל עכשיו</button>
+          {syncAllMsg&&<div style={{fontSize:12,marginTop:8,textAlign:'center',color:syncAllMsg.startsWith('✓')?'var(--txS)':'var(--txI)'}}>{syncAllMsg}</div>}
+        </div>
+      )}
       <div style={{...S.card,border:'1.5px solid #fca5a5',background:'#fff5f5'}}>
         <div style={{fontSize:14,fontWeight:600,marginBottom:6,color:'#dc2626'}}>🗑 ניקוי שיעורים כפולים</div>
         <p style={{fontSize:13,color:'var(--tx2)',margin:'0 0 12px',lineHeight:1.6}}>בגלל באג שתוקן, כל לחיצה על "פרסם" יצרה עותקים מיותרים. לחץ פעם אחת לניקוי — לא ניתן לבטל.</p>
