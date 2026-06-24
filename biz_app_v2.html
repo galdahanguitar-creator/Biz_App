@@ -1,0 +1,2477 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>ניהול עסק מוסיקה — גל</title>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+  <style>
+:root {
+  --bg1:#ffffff; --bg2:#f0f7ff; --bg3:#e3edf8;
+  --bgD:#FCEBEB; --bgS:#EAF3DE; --bgW:#FAEEDA; --bgI:#E6F1FB;
+  --tx1:#0f172a; --tx2:#64748b;
+  --txD:#A32D2D; --txS:#27500A; --txW:#854F0B; --txI:#185FA5;
+  --bd3:#dbeafe; --bd2:#B5D4F4;
+  --r1:14px; --r2:8px;
+  --blue:#378ADD; --blueD:#185FA5;
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,Arial,sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body,#root{margin:0;padding:0;min-height:100%}
+body{font-family:var(--font);background:var(--bg3);color:var(--tx1);-webkit-font-smoothing:antialiased}
+button,textarea,input,select{font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#378ADD!important;box-shadow:0 0 0 3px rgba(55,138,221,.15)}
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+const { useState, useMemo, useEffect } = React;
+
+// ── Firebase ──────────────────────────────────────────────────────────────────
+const FB_CFG = {
+  apiKey:"AIzaSyCl0G_SiV1GJGnGIg5X-l_zo6EX4XldJJs",
+  authDomain:"i-want-lesson.firebaseapp.com",
+  projectId:"i-want-lesson",
+  storageBucket:"i-want-lesson.firebasestorage.app",
+  messagingSenderId:"310804485528",
+  appId:"1:310804485528:web:82d393afbf1268a6e7c7ed"
+};
+const C={
+  stu:'biz_students', les:'biz_lessons', meta:'biz_meta',
+  pub:'biz_published_weeks', ev:'biz_events',
+  pay:'biz_payments', pend:'biz_pending'
+};
+
+// ── Date utils ────────────────────────────────────────────────────────────────
+const DAY=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+const MON=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+const pd=s=>new Date(s+'T12:00:00');
+const fd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const addD=(s,n)=>{const d=pd(s);d.setDate(d.getDate()+n);return fd(d);};
+const wkS=s=>{const d=pd(s);d.setDate(d.getDate()-d.getDay());return fd(d);};
+const today=()=>fd(new Date());
+const dd=s=>{const d=pd(s);return `${d.getDate()}/${d.getMonth()+1}`;};
+const inWk=(ds,ws)=>ds>=ws&&ds<addD(ws,7);
+const hUntil=(ds,t)=>(new Date(`${ds}T${t}:00`)-new Date())/3600000;
+const validT=t=>{const h=parseInt(t,10);return h>=7&&h<24;};
+const t2m=t=>{const[h,m]=t.split(':').map(Number);return h*60+m;};
+const m2t=m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;
+const tDiff=(a,b)=>t2m(b)-t2m(a);
+const fmtMon=ym=>{const[y,m]=ym.split('-');return `${MON[+m-1]} ${y}`;};
+const monOf=ds=>ds.slice(0,7);
+const prevMon=ym=>{const[y,m]=ym.split('-').map(Number);return m===1?`${y-1}-12`:`${y}-${String(m-1).padStart(2,'0')}`;};
+const nextMon=ym=>{const[y,m]=ym.split('-').map(Number);return m===12?`${y+1}-01`:`${y}-${String(m+1).padStart(2,'0')}`;};
+const monRange=ym=>{const s=`${ym}-01`;const d=pd(s);d.setMonth(d.getMonth()+1);return[s,fd(d)];};
+const phoneDigits=p=>(p||'').replace(/[^0-9]/g,'');
+const waLink=(phone,text)=>{let d=phoneDigits(phone);if(d.startsWith('0'))d='972'+d.slice(1);else if(!d.startsWith('972'))d='972'+d;return `https://wa.me/${d}?text=${encodeURIComponent(text)}`;};
+const firstName=full=>(full||'').trim().split(/\s+/)[0]||'';
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+const BIZ_START='2026-06-01', BIZ_END='2027-08-31';
+const TCH_CODE='gal2026';
+
+const HOL=[
+  {n:'ראש השנה',s:'2026-09-11',e:'2026-09-13'},{n:'יום כיפור',s:'2026-09-20',e:'2026-09-21'},
+  {n:'סוכות',s:'2026-09-25',e:'2026-10-03'},{n:'חנוכה',s:'2026-12-06',e:'2026-12-12'},
+  {n:'פורים',s:'2027-03-23',e:'2027-03-24'},{n:'פסח',s:'2027-04-13',e:'2027-04-28'},
+  {n:'שבועות',s:'2027-06-10',e:'2027-06-11'},
+];
+const getHol=ds=>HOL.find(h=>ds>=h.s&&ds<=h.e)||null;
+
+const ETYPES={
+  hagbara:    {label:'הגברה',  icon:'🔊',color:'#c2410c',bg:'#fff7ed',border:'#fed7aa'},
+  production: {label:'הפקה',   icon:'🎬',color:'#6d28d9',bg:'#f5f3ff',border:'#c4b5fd'},
+  performance:{label:'הופעה',  icon:'🎤',color:'#be185d',bg:'#fdf2f8',border:'#f9a8d4'},
+};
+const PAY_S={
+  unpaid:   {label:'לא שולם',    color:'danger'},
+  requested:{label:'בקשה נשלחה', color:'warning'},
+  partial:  {label:'חלקי',       color:'warning'},
+  paid:     {label:'שולם ✓',     color:'success'},
+};
+const ST_META={
+  scheduled:            {label:'מתוכנן',          color:'info'},
+  completed:            {label:'התקיים',          color:'success'},
+  moved:                {label:'הועבר',           color:'default'},
+  cancelled_justified:  {label:'בוטל (מוצדק)',    color:'warning'},
+  cancelled_unjustified:{label:'בוטל (לא מוצדק)',color:'danger'},
+  teacher_cancelled:    {label:'בוטל ע"י המורה',  color:'default'},
+  pending_cancel:       {label:'ממתין לביטול',    color:'warning'},
+  no_show:              {label:'לא הגיע',         color:'danger'},
+};
+
+// ── Styles ─────────────────────────────────────────────────────────────────────
+const S={
+  page: {direction:'rtl',fontFamily:'var(--font)',padding:'0 0 80px',minHeight:'100vh',background:'var(--bg3)'},
+  hdr:  {background:'#fff',borderBottom:'3px solid var(--blue)',padding:'14px 16px',display:'flex',alignItems:'center',justifyContent:'space-between'},
+  ttl:  {fontSize:18,fontWeight:700,margin:0,color:'var(--blueD)'},
+  tabs: {display:'flex',background:'#fff',borderBottom:'0.5px solid var(--bd3)',overflowX:'auto'},
+  tab:  a=>({padding:'11px 14px',fontSize:13,fontWeight:a?600:400,color:a?'var(--blue)':'var(--tx2)',cursor:'pointer',whiteSpace:'nowrap',background:a?'var(--bg2)':'none',border:'none',borderBottom:a?'2.5px solid var(--blue)':'2.5px solid transparent'}),
+  body: {padding:'12px 14px'},
+  card: {background:'#fff',border:'1px solid var(--bd3)',borderRadius:'var(--r1)',padding:'14px 16px',marginBottom:10},
+  btn:  v=>({padding:'9px 18px',fontSize:13,fontWeight:600,borderRadius:8,cursor:'pointer',border:'1.5px solid',
+    ...(v==='primary'?{background:'var(--blue)',color:'#fff',borderColor:'var(--blueD)'}:
+        v==='danger' ?{background:'var(--bgD)',color:'var(--txD)',borderColor:'#F7C1C1'}:
+        v==='success'?{background:'var(--bgS)',color:'var(--txS)',borderColor:'#C0DD97'}:
+        v==='warning'?{background:'var(--bgW)',color:'var(--txW)',borderColor:'#FAC775'}:
+        v==='info'   ?{background:'var(--bgI)',color:'var(--txI)',borderColor:'var(--bd2)'}:
+        v==='ghost'  ?{background:'transparent',color:'var(--blue)',borderColor:'transparent'}:
+                      {background:'#fff',color:'var(--tx2)',borderColor:'var(--bd2)'})}),
+  bdg:  c=>({display:'inline-block',fontSize:11,padding:'3px 10px',borderRadius:6,fontWeight:600,
+    background:c==='danger'?'var(--bgD)':c==='success'?'var(--bgS)':c==='warning'?'var(--bgW)':'var(--bgI)',
+    color:c==='danger'?'var(--txD)':c==='success'?'var(--txS)':c==='warning'?'var(--txW)':c==='default'?'var(--tx2)':'var(--txI)'}),
+  inp:  {width:'100%',fontSize:14,padding:'9px 12px',borderRadius:8,border:'1.5px solid var(--bd2)',background:'#fff',color:'var(--tx1)',boxSizing:'border-box'},
+  row:  {display:'flex',gap:8,alignItems:'center'},
+  lbl:  {fontSize:12,color:'var(--tx2)',marginBottom:4,fontWeight:500},
+};
+
+// ── Shared Components ─────────────────────────────────────────────────────────
+function SBadge({status}){const m=ST_META[status]||{label:status,color:'default'};return <span style={S.bdg(m.color)}>{m.label}</span>;}
+function HolBadge({date}){const h=getHol(date);if(!h)return null;return <span style={{...S.bdg('warning'),marginRight:6,fontSize:10}}>{h.n}</span>;}
+
+function Modal({children,onClose}){
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:200,display:'flex',alignItems:'flex-end',justifyContent:'center'}} onClick={onClose}>
+      <div style={{background:'#fff',borderRadius:'18px 18px 0 0',padding:'20px 16px 40px',width:'100%',maxWidth:440,maxHeight:'90vh',overflowY:'auto'}} onClick={e=>e.stopPropagation()}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── Week Calendar (8–24, variable item height) ────────────────────────────────
+function WeekCal({days,items,renderItem,onColClick}){
+  const MN=8,MX=24,PM=1.55,GH=(MX-MN)*60*PM,TW=36,CM=66,DH=45*PM-2;
+  const hrs=Array.from({length:MX-MN+1},(_,i)=>MN+i);
+  function t2top(t){const[h,m]=t.split(':').map(Number);return((h-MN)*60+m)*PM;}
+  function click(di,date,e){
+    if(!onColClick)return;
+    let tot=e.nativeEvent.offsetY/PM;
+    let h=Math.floor(tot/60)+MN,m=Math.round((tot%60)/5)*5;
+    if(m>=60){m=0;h++;}
+    h=Math.min(Math.max(h,MN),MX-1);
+    onColClick(di,date,`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
+  }
+  return(
+    <div style={{border:'0.5px solid var(--bd3)',borderRadius:12,overflow:'hidden',background:'#fff',marginBottom:12,direction:'ltr'}}>
+      <div style={{overflowX:'auto',overflowY:'auto',maxHeight:520}}>
+        <div style={{minWidth:TW+days.length*CM,position:'relative'}}>
+          <div style={{display:'flex',position:'sticky',top:0,zIndex:10,background:'var(--bg2)',borderBottom:'1px solid var(--bd3)'}}>
+            <div style={{width:TW,flexShrink:0,position:'sticky',left:0,zIndex:11,background:'var(--bg2)'}}/>
+            {days.map(day=>{
+              const hol=getHol(day.date),isT=fd(new Date())===day.date;
+              return(
+                <div key={day.date} style={{flex:1,minWidth:CM,textAlign:'center',padding:'7px 2px',borderLeft:'0.5px solid var(--bd3)'}}>
+                  <div style={{fontSize:10,color:'var(--tx2)',marginBottom:1}}>יום {DAY[day.di]}</div>
+                  <div style={{fontSize:17,fontWeight:600,margin:'0 auto',width:26,height:26,lineHeight:'26px',borderRadius:'50%',color:isT?'#fff':'var(--tx1)',background:isT?'#2563eb':'transparent'}}>{pd(day.date).getDate()}</div>
+                  {hol&&<div style={{fontSize:9,color:'var(--txW)',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{hol.n}</div>}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{display:'flex',height:GH}}>
+            <div style={{width:TW,flexShrink:0,position:'sticky',left:0,zIndex:5,background:'var(--bg2)',height:GH}}>
+              {hrs.map(h=><div key={h} style={{position:'absolute',top:(h-MN)*60*PM-7,left:0,right:4,fontSize:9,color:'var(--tx2)',textAlign:'right',userSelect:'none',direction:'ltr',pointerEvents:'none'}}>{h<24?`${String(h).padStart(2,'0')}:00`:'00:00'}</div>)}
+            </div>
+            {days.map(day=>(
+              <div key={day.date} style={{flex:1,minWidth:CM,height:GH,position:'relative',borderLeft:'0.5px solid var(--bd3)',cursor:onColClick?'crosshair':'default'}} onClick={e=>click(day.di,day.date,e)}>
+                {hrs.map(h=><div key={h} style={{position:'absolute',top:(h-MN)*60*PM,left:0,right:0,borderTop:'0.5px solid var(--bd3)',opacity:.35,pointerEvents:'none'}}/>)}
+                {hrs.map(h=><div key={`hh${h}`} style={{position:'absolute',top:((h-MN)*60+30)*PM,left:0,right:0,borderTop:'0.5px dashed var(--bd3)',opacity:.18,pointerEvents:'none'}}/>)}
+                {items.filter(it=>it.date===day.date).map(it=>{
+                  const top=t2top(it.time||it.startTime||'09:00');
+                  const ht=it.durationMins?it.durationMins*PM-2:DH;
+                  return renderItem(it,top,ht);
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── genLessons ────────────────────────────────────────────────────────────────
+function genLessons(students,startFrom=BIZ_START){
+  const L=[];
+  const sixMonthsOut=new Date();sixMonthsOut.setMonth(sixMonthsOut.getMonth()+6);
+  const GEN_END=fd(sixMonthsOut)<BIZ_END?fd(sixMonthsOut):BIZ_END;
+  students.filter(s=>s.type==='fixed').forEach(s=>{
+    let d=pd(startFrom);
+    let _g=0;while(d.getDay()!==s.di&&_g++<8)d.setDate(d.getDate()+1);
+    while(fd(d)<=GEN_END){
+      const ds=fd(d);
+      L.push({id:`${s.id}_${ds}`,sid:s.id,date:ds,time:s.t,status:'scheduled',reason:'',cancelledAt:null});
+      d.setDate(d.getDate()+7);
+    }
+  });
+  return L;
+}
+
+// ── Loading / Register / Login ─────────────────────────────────────────────────
+function LoadingView({seeding}){
+  return(
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minHeight:'100vh',gap:16,background:'var(--bg3)'}}>
+      <div style={{fontSize:56}}>🎸</div>
+      <div style={{fontSize:15,color:'var(--tx2)'}}>{seeding?'מאתחל...':'טוען...'}</div>
+    </div>
+  );
+}
+
+function RegisterView({db}){
+  const [name,setName]=useState('');
+  const [phone,setPhone]=useState('');
+  const [parent,setParent]=useState('');
+  const [hasPref,setHasPref]=useState(false);
+  const [di,setDi]=useState(1);
+  const [time,setTime]=useState('09:00');
+  const [done,setDone]=useState(false);
+  const [busy,setBusy]=useState(false);
+  async function submit(){
+    if(!name.trim()||!phone.trim())return;
+    setBusy(true);
+    try{
+      await db.collection(C.pend).add({name:name.trim(),phone:phone.trim(),parent:parent.trim(),di:hasPref?di:null,t:hasPref?time:null,submittedAt:new Date().toISOString()});
+      setDone(true);
+    }catch(e){console.error(e);}
+    setBusy(false);
+  }
+  if(done)return(
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minHeight:'100vh',gap:16,padding:20,background:'var(--bg3)'}}>
+      <div style={{fontSize:52}}>✅</div>
+      <h2 style={{fontSize:20,fontWeight:500,textAlign:'center',margin:0}}>הבקשה נשלחה!</h2>
+      <p style={{fontSize:14,color:'var(--tx2)',textAlign:'center',margin:0,maxWidth:280}}>המורה יאשר את הרישום בקרוב.</p>
+    </div>
+  );
+  return(
+    <div style={{direction:'rtl',fontFamily:'var(--font)',minHeight:'100vh',background:'var(--bg3)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{width:'100%',maxWidth:360}}>
+        <h1 style={{fontSize:20,fontWeight:500,textAlign:'center',marginBottom:4}}>🎸 רישום לשיעורים</h1>
+        <p style={{fontSize:13,color:'var(--tx2)',textAlign:'center',marginBottom:20}}>טופס הרשמה לתלמיד חדש</p>
+        <div style={{background:'#fff',borderRadius:'var(--r1)',padding:'16px 14px',border:'0.5px solid var(--bd3)'}}>
+          {[['שם מלא *',name,setName,'text','שם פרטי ומשפחה'],['טלפון *',phone,setPhone,'tel','050-0000000'],['שם הורה / איש קשר',parent,setParent,'text','אופציונלי']].map(([lbl,val,set,type,ph])=>(
+            <div key={lbl} style={{marginBottom:12}}>
+              <div style={S.lbl}>{lbl}</div>
+              <input type={type} style={S.inp} value={val} onChange={e=>set(e.target.value)} placeholder={ph}/>
+            </div>
+          ))}
+          <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',padding:'10px 12px',borderRadius:8,border:`1px solid ${hasPref?'var(--tx1)':'var(--bd3)'}`,background:hasPref?'var(--bg2)':'transparent',marginBottom:12}}>
+            <input type="checkbox" checked={hasPref} onChange={e=>setHasPref(e.target.checked)} style={{width:16,height:16,margin:0}}/>
+            <div><div style={{fontSize:13,fontWeight:500}}>יש לי שעה מועדפת</div><div style={{fontSize:11,color:'var(--tx2)',marginTop:2}}>אציין יום ושעה</div></div>
+          </label>
+          {hasPref&&(
+            <div style={{display:'flex',gap:8,marginBottom:12}}>
+              <div style={{flex:1}}><div style={S.lbl}>יום</div>
+                <select style={S.inp} value={di} onChange={e=>setDi(Number(e.target.value))}>
+                  {[0,1,2,3,4].map(d=><option key={d} value={d}>יום {DAY[d]}</option>)}
+                </select></div>
+              <div style={{flex:1}}><div style={S.lbl}>שעה</div>
+                <input type="time" step="900" style={S.inp} value={time} onChange={e=>setTime(e.target.value)}/></div>
+            </div>
+          )}
+          <button style={{width:'100%',padding:'10px',fontSize:14,fontWeight:500,borderRadius:8,cursor:(name.trim()&&phone.trim()&&!busy)?'pointer':'not-allowed',border:'none',background:(name.trim()&&phone.trim()&&!busy)?'var(--tx1)':'var(--bg2)',color:(name.trim()&&phone.trim()&&!busy)?'#fff':'var(--tx2)',marginTop:4}} disabled={!name.trim()||!phone.trim()||busy} onClick={submit}>{busy?'שולח...':'שלח בקשת הרשמה'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LoginView({onT,onS}){
+  const [mode,setMode]=useState(null);
+  const [code,setCode]=useState('');
+  const [err,setErr]=useState('');
+  function submit(){setErr('');if(mode==='teacher'){if(!onT(code))setErr('קוד שגוי');}else{if(!onS(code))setErr('קוד לא נמצא');}}
+  return(
+    <div style={{...S.page,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minHeight:'100vh',gap:24}}>
+      <div style={{fontSize:54,lineHeight:1,textAlign:'center'}}>🎸</div>
+      <h1 style={{fontSize:24,fontWeight:700,margin:0,color:'var(--blueD)',textAlign:'center'}}>ניהול עסק מוסיקה</h1>
+      <p style={{fontSize:14,color:'var(--tx2)',margin:0,textAlign:'center'}}>מערכת פרטית</p>
+      {!mode&&(
+        <div style={{display:'flex',flexDirection:'column',gap:12,width:'100%',maxWidth:300}}>
+          <button style={{...S.btn('primary'),width:'100%',padding:'13px',fontSize:15}} onClick={()=>setMode('teacher')}>כניסת מורה</button>
+          <button style={{...S.btn('default'),width:'100%',padding:'13px',fontSize:15}} onClick={()=>setMode('student')}>כניסת תלמיד</button>
+        </div>
+      )}
+      {mode&&(
+        <div style={{...S.card,width:'100%',maxWidth:280}}>
+          <p style={{margin:'0 0 12px',fontSize:14,fontWeight:500}}>{mode==='teacher'?'סיסמת מורה':'קוד אישי'}</p>
+          <input style={S.inp} type="password" placeholder="הכנס קוד..." value={code} onChange={e=>setCode(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} autoFocus/>
+          {err&&<p style={{color:'var(--txD)',fontSize:13,margin:'8px 0 0'}}>{err}</p>}
+          <div style={{...S.row,marginTop:12,justifyContent:'space-between'}}>
+            <button style={S.btn('ghost')} onClick={()=>{setMode(null);setCode('');setErr('');}}>חזרה</button>
+            <button style={S.btn('primary')} onClick={submit}>כניסה</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// TEACHER VIEW
+// ══════════════════════════════════════════════════════════════
+function TeacherView({ctx}){
+  const [tab,setTab]=useState('week');
+  const {lessons,logout,pendingStudents,events}=ctx;
+  const pendCnt=lessons.filter(l=>l.status==='pending_cancel').length+(pendingStudents?.length||0);
+  const evtCnt=events.filter(e=>e.date>=today()).length;
+  return(
+    <div style={S.page}>
+      <div style={S.hdr}>
+        <h1 style={S.ttl}>🎸 ניהול עסק</h1>
+        <div style={S.row}>
+          <button style={{...S.btn('ghost'),padding:'6px 10px',fontSize:12}} onClick={()=>setTab('gcal')}>📅 יומן</button>
+          <button style={{...S.btn('ghost'),padding:'6px 10px',fontSize:12}} onClick={logout}>יציאה</button>
+        </div>
+      </div>
+      <div style={S.tabs}>
+        {[['week','השבוע'],['nextweek','שבוע הבא'],['events',`אירועים${evtCnt?` (${evtCnt})`:''}` ],['students','תלמידים'],['finance','כספים'],['requests',`בקשות${pendCnt?` (${pendCnt})`:''}`]].map(([t,l])=>(
+          <button key={t} style={S.tab(tab===t)} onClick={()=>setTab(t)}>{l}</button>
+        ))}
+      </div>
+      <div style={S.body}>
+        {tab==='week'     && <TeacherWeekTab     ctx={ctx}/>}
+        {tab==='nextweek' && <TeacherNextWeekTab ctx={ctx}/>}
+        {tab==='events'   && <TeacherEventsTab   ctx={ctx}/>}
+        {tab==='students' && <TeacherStudentsTab ctx={ctx}/>}
+        {tab==='finance'  && <TeacherFinanceTab  ctx={ctx}/>}
+        {tab==='requests' && <TeacherRequestsTab ctx={ctx}/>}
+        {tab==='gcal'     && <GCalTab            ctx={ctx}/>}
+      </div>
+    </div>
+  );
+}
+
+// ── This Week (unified: lessons + events) ─────────────────────────────────────
+function TeacherWeekTab({ctx}){
+  const {lessons,students,events,THIS_WK,NEXT_WK,updLesson,addLesson,baseSlots,TODAY}=ctx;
+  const [sel,setSel]=useState(null);
+  const [subView,setSubView]=useState(null); // 'cancel'|'move'|'register'
+  const [colSlot,setColSlot]=useState(null); // {di,date,time}
+
+  function closeAll(){setSel(null);setSubView(null);setColSlot(null);}
+
+  const days=useMemo(()=>{
+    const dSet=new Set();
+    for(let i=0;i<6;i++) dSet.add(addD(THIS_WK,i));
+    events.filter(e=>inWk(e.date,THIS_WK)).forEach(e=>dSet.add(e.date));
+    return [...dSet].sort().map(date=>({date,di:pd(date).getDay()}));
+  },[THIS_WK,events]);
+
+  const items=useMemo(()=>[
+    ...lessons.filter(l=>inWk(l.date,THIS_WK)).map(l=>({...l,_t:'lesson',durationMins:45})),
+    ...events.filter(e=>inWk(e.date,THIS_WK)).map(e=>({...e,_t:'event',time:e.startTime,durationMins:(e.startTime&&e.endTime&&e.endTime>e.startTime)?tDiff(e.startTime,e.endTime):60})),
+  ],[lessons,events,THIS_WK]);
+
+  function getAvailSlots(excludeDate,excludeTime,excludeSid){
+    const slots=[];
+    baseSlots.filter(s=>validT(s.t)).forEach(s=>{
+      [[THIS_WK,'this'],[NEXT_WK,'next']].forEach(([wk,wkLabel])=>{
+        let d=pd(wk);let _g=0;while(d.getDay()!==s.di&&_g++<8)d.setDate(d.getDate()+1);
+        const date=fd(d);
+        if(date<TODAY)return;
+        if(date===excludeDate&&s.t===excludeTime)return;
+        const taken=lessons.some(l=>l.date===date&&l.time===s.t&&['scheduled','pending_cancel'].includes(l.status)&&(!excludeSid||l.sid!==excludeSid)&&students.some(st=>st.id===l.sid));
+        if(!taken)slots.push({date,time:s.t,di:s.di,week:wkLabel});
+      });
+    });
+    return slots.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
+  }
+
+  function renderItem(it,top,ht){
+    if(it._t==='event'){
+      const et=ETYPES[it.type]||ETYPES.performance;
+      return(
+        <div key={it.id} onClick={e=>{e.stopPropagation();setSel(it);}} style={{position:'absolute',top,left:2,right:2,height:ht,background:et.bg,border:`1px solid ${et.border}`,borderRadius:5,padding:'3px 5px',cursor:'pointer',overflow:'hidden'}}>
+          <div style={{fontSize:11,fontWeight:700,color:et.color,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{et.icon} {it.title}</div>
+          <div style={{fontSize:10,color:et.color}}>{it.startTime}{it.endTime?`–${it.endTime}`:''}</div>
+          {it.price&&<div style={{fontSize:9,color:et.color}}>₪{it.price}{it.paidStatus==='paid'?' ✓':it.paidStatus==='partial'?' (חלקי)':''}</div>}
+        </div>
+      );
+    }
+    const stu=students.find(s=>s.id===it.sid);
+    const pend=it.status==='pending_cancel';
+    const canc=['cancelled_justified','cancelled_unjustified','teacher_cancelled','no_show','moved'].includes(it.status);
+    const bg=pend?'#fef3c7':canc?'#f1f5f9':'#dbeafe';
+    const fg=pend?'#92400e':canc?'#94a3b8':'#1e40af';
+    const bd=pend?'#fcd34d':canc?'#cbd5e1':'#93c5fd';
+    return(
+      <div key={it.id} onClick={e=>{e.stopPropagation();setSel(it);setSubView(canc?'register':null);}} style={{position:'absolute',top,left:2,right:2,height:ht,background:bg,border:`1px solid ${bd}`,borderRadius:5,padding:'3px 5px',cursor:'pointer',overflow:'hidden',opacity:canc?.55:1}}>
+        <div style={{fontSize:11,fontWeight:700,color:fg,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{stu?.name}</div>
+        <div style={{fontSize:10,color:fg}}>{it.time}</div>
+        {pend&&<div style={{fontSize:9,color:fg}}>⏳</div>}
+        {canc&&<div style={{fontSize:9,color:fg}}>✗ בוטל · לחץ לשיבוץ</div>}
+      </div>
+    );
+  }
+
+  return(
+    <div>
+      <div style={{fontSize:12,color:'var(--tx2)',textAlign:'center',marginBottom:8}}>שבוע {dd(THIS_WK)} – {dd(addD(THIS_WK,6))}</div>
+      <div style={{...S.row,gap:8,marginBottom:8,flexWrap:'wrap'}}>
+        {[['#dbeafe','#1e40af','שיעור'],...Object.values(ETYPES).map(et=>[et.bg,et.color,et.label])].map(([bg,fg,l])=>(
+          <div key={l} style={{...S.row,gap:3}}><div style={{width:9,height:9,borderRadius:2,background:bg,border:`1px solid ${fg}`,flexShrink:0}}/><span style={{fontSize:10,color:'var(--tx2)'}}>{l}</span></div>
+        ))}
+      </div>
+      {days.length===0?(
+        <div style={{textAlign:'center',padding:'40px 0',color:'var(--tx2)',fontSize:14}}>אין פעילות מתוכננת השבוע</div>
+      ):(
+        <>
+          <WeekCal days={days} items={items} renderItem={renderItem} onColClick={(di,date,t)=>{setSubView(null);setSel(null);setColSlot({di,date,time:t});}}/>
+          <div style={{fontSize:11,color:'var(--tx2)',textAlign:'center',marginTop:-4,marginBottom:6}}>לחץ על תלמיד לעריכה/ביטול · לחץ על שעה ריקה לשיבוץ</div>
+        </>
+      )}
+      {sel&&sel._t==='event'&&(
+        <Modal onClose={closeAll}>
+          {(()=>{const et=ETYPES[sel.type]||ETYPES.performance;return(
+            <div style={{direction:'rtl'}}>
+              <div style={{fontSize:17,fontWeight:600,marginBottom:4}}>{et.icon} {sel.title}</div>
+              <div style={{fontSize:13,color:'var(--tx2)',marginBottom:10}}>יום {DAY[pd(sel.date).getDay()]} · {dd(sel.date)} · {sel.startTime}{sel.endTime?`–${sel.endTime}`:''}</div>
+              {sel.location&&<div style={{fontSize:13,marginBottom:4}}>📍 {sel.location}</div>}
+              {sel.price&&<div style={{fontSize:13,marginBottom:4}}>₪{sel.price} · <span style={S.bdg(PAY_S[sel.paidStatus||'unpaid'].color)}>{PAY_S[sel.paidStatus||'unpaid'].label}</span></div>}
+              {sel.notes&&<div style={{fontSize:12,color:'var(--tx2)',marginTop:8}}>{sel.notes}</div>}
+              <button style={{...S.btn('ghost'),width:'100%',marginTop:16}} onClick={closeAll}>סגור</button>
+            </div>
+          );})()}
+        </Modal>
+      )}
+      {sel&&sel._t==='lesson'&&(
+        <Modal onClose={closeAll}>
+          <div style={{direction:'rtl'}}>
+            {!subView&&(
+              <>
+                <div style={{fontSize:17,fontWeight:600,marginBottom:4}}>{students.find(s=>s.id===sel.sid)?.name}</div>
+                <div style={{fontSize:13,color:'var(--tx2)',marginBottom:8}}>יום {DAY[pd(sel.date).getDay()]} · {dd(sel.date)} · {sel.time}</div>
+                <div style={{marginBottom:12}}><SBadge status={sel.status}/></div>
+                {sel.reason&&<p style={{fontSize:13,color:'var(--tx2)',margin:'0 0 12px'}}>סיבה: {sel.reason}</p>}
+                {(sel.status==='scheduled'||sel.status==='pending_cancel')&&(
+                  <>
+                    <button style={{...S.btn('info'),width:'100%',marginBottom:8,textAlign:'right'}} onClick={()=>setSubView('move')}>✏️ הזז שיעור</button>
+                    <button style={{...S.btn('warning'),width:'100%',marginBottom:8,textAlign:'right'}} onClick={()=>setSubView('register')}>🔄 החלף תלמיד</button>
+                    <button style={{...S.btn('danger'),width:'100%',marginBottom:8,textAlign:'right'}} onClick={()=>setSubView('cancel')}>❌ בטל שיעור</button>
+                  </>
+                )}
+                {!['scheduled','pending_cancel'].includes(sel.status)&&(
+                  <button style={{...S.btn('info'),width:'100%',marginBottom:8,textAlign:'right'}} onClick={()=>setSubView('register')}>📝 רשום תלמיד אחר לשעה זו</button>
+                )}
+                <button style={{...S.btn('ghost'),width:'100%',marginTop:4}} onClick={closeAll}>סגור</button>
+              </>
+            )}
+            {subView==='cancel'&&(
+              <>
+                <div style={{fontSize:15,fontWeight:600,marginBottom:4}}>ביטול שיעור — {students.find(s=>s.id===sel.sid)?.name}</div>
+                <p style={{fontSize:13,color:'var(--tx2)',margin:'0 0 14px'}}>{dd(sel.date)} · {sel.time}</p>
+                <button style={{...S.btn('success'),width:'100%',marginBottom:8,textAlign:'right',padding:'10px 14px'}} onClick={()=>{updLesson(sel.id,{status:'cancelled_justified'});closeAll();}}>
+                  <div><div style={{fontWeight:600}}>✅ מוצדק</div><div style={{fontSize:11,marginTop:2,opacity:.8}}>מחלה, נסיבות בלתי צפויות — לא ייחשב בתשלום</div></div>
+                </button>
+                <button style={{...S.btn('danger'),width:'100%',marginBottom:8,textAlign:'right',padding:'10px 14px'}} onClick={()=>{updLesson(sel.id,{status:'cancelled_unjustified'});closeAll();}}>
+                  <div><div style={{fontWeight:600}}>❌ לא מוצדק</div><div style={{fontSize:11,marginTop:2,opacity:.8}}>ביטול ללא סיבה — ייחשב בתשלום</div></div>
+                </button>
+                <button style={{...S.btn('info'),width:'100%',marginBottom:12,textAlign:'right',padding:'10px 14px'}} onClick={()=>{updLesson(sel.id,{status:'teacher_cancelled'});closeAll();}}>
+                  <div><div style={{fontWeight:600}}>🎸 בוטל ע"י המורה</div><div style={{fontSize:11,marginTop:2,opacity:.8}}>לא ייחשב בתשלום</div></div>
+                </button>
+                <button style={{...S.btn('ghost'),width:'100%'}} onClick={()=>setSubView(null)}>← חזרה</button>
+              </>
+            )}
+            {subView==='move'&&(()=>{
+              const slots=getAvailSlots(sel.date,sel.time,sel.sid);
+              const selStu=students.find(s=>s.id===sel.sid);
+              return(
+                <>
+                  <div style={{fontSize:15,fontWeight:600,marginBottom:4}}>הזזת שיעור — {selStu?.name}</div>
+                  <div style={{background:'var(--bg2)',borderRadius:8,padding:'8px 12px',marginBottom:12}}>
+                    <div style={{fontSize:11,color:'var(--tx2)',marginBottom:2}}>שיעור נוכחי</div>
+                    <div style={{fontSize:14,fontWeight:500}}>יום {DAY[pd(sel.date).getDay()]} {dd(sel.date)} · {sel.time}</div>
+                  </div>
+                  {slots.length===0?<div style={{fontSize:13,color:'var(--tx2)',textAlign:'center',padding:'12px 0'}}>אין שעות פנויות</div>:(
+                    ['this','next'].map(wk=>{
+                      const ws=slots.filter(s=>s.week===wk);
+                      if(!ws.length)return null;
+                      return(<div key={wk} style={{marginBottom:10}}>
+                        <div style={{fontSize:11,fontWeight:600,color:'var(--tx2)',marginBottom:6}}>{wk==='this'?'השבוע':'שבוע הבא'}</div>
+                        {ws.map(sl=>{
+                          const isReg=selStu?.type==='fixed'&&sl.di===selStu.di&&sl.time===selStu.t;
+                          return(
+                            <button key={`${sl.date}_${sl.time}`} style={{...S.btn(isReg?'info':'default'),marginBottom:5,width:'100%',textAlign:'right'}} onClick={()=>{updLesson(sel.id,{status:'moved'});addLesson({sid:sel.sid,date:sl.date,time:sl.time,status:'scheduled',reason:'',durationMins:45,weekStart:wkS(sl.date)});closeAll();}}>
+                              יום {DAY[sl.di]} {dd(sl.date)} · {sl.time}
+                              {isReg&&<span style={{fontSize:10,color:'var(--txI)',marginRight:8}}>⭐ קבועה</span>}
+                            </button>
+                          );
+                        })}
+                      </div>);
+                    })
+                  )}
+                  <button style={{...S.btn('ghost'),width:'100%',marginTop:4}} onClick={()=>setSubView(null)}>← חזרה</button>
+                </>
+              );
+            })()}
+            {subView==='register'&&(()=>{
+              const alreadyAt=new Set(lessons.filter(l=>l.date===sel.date&&l.time===sel.time&&['scheduled','pending_cancel'].includes(l.status)&&l.id!==sel.id).map(l=>l.sid));
+              const stuList=students.filter(s=>!alreadyAt.has(s.id)&&s.id!==sel.sid);
+              return(
+                <>
+                  <div style={{fontSize:15,fontWeight:600,marginBottom:4}}>רישום תלמיד — {dd(sel.date)} · {sel.time}</div>
+                  {stuList.length===0?<div style={{fontSize:13,color:'var(--tx2)',textAlign:'center',padding:'12px 0'}}>אין תלמידים זמינים</div>:(
+                    stuList.map(s=>(
+                      <button key={s.id} style={{...S.btn('default'),marginBottom:5,width:'100%',textAlign:'right'}} onClick={()=>{
+                        if(['scheduled','pending_cancel'].includes(sel.status))updLesson(sel.id,{status:'teacher_cancelled'});
+                        addLesson({sid:s.id,date:sel.date,time:sel.time,status:'scheduled',reason:'',durationMins:45,weekStart:wkS(sel.date)});
+                        closeAll();
+                      }}>
+                        {s.name}<span style={{fontSize:11,color:'var(--tx2)',marginRight:6}}> · {s.type==='fixed'?'קבוע':'נייד'}</span>
+                      </button>
+                    ))
+                  )}
+                  <button style={{...S.btn('ghost'),width:'100%',marginTop:4}} onClick={()=>setSubView(null)}>← חזרה</button>
+                </>
+              );
+            })()}
+          </div>
+        </Modal>
+      )}
+      {colSlot&&(
+        <Modal onClose={closeAll}>
+          <div style={{direction:'rtl'}}>
+            <div style={{fontSize:17,fontWeight:600,marginBottom:4}}>שיבוץ תלמיד</div>
+            <div style={{fontSize:13,color:'var(--tx2)',marginBottom:10}}>יום {DAY[colSlot.di]} · {dd(colSlot.date)}</div>
+            <div style={{marginBottom:12}}>
+              <div style={S.lbl}>שעה</div>
+              <input type="time" step="300" style={S.inp} value={colSlot.time} onChange={e=>setColSlot({...colSlot,time:e.target.value})}/>
+            </div>
+            <div style={{fontSize:12,color:'var(--tx2)',marginBottom:10}}>בחר תלמיד לשיבוץ:</div>
+            {(()=>{
+              const alreadyAt=new Set(lessons.filter(l=>l.date===colSlot.date&&l.time===colSlot.time&&['scheduled','pending_cancel'].includes(l.status)).map(l=>l.sid));
+              const stuList=students.filter(s=>!alreadyAt.has(s.id));
+              return stuList.length===0
+                ?<div style={{fontSize:13,color:'var(--tx2)',textAlign:'center',padding:'12px 0'}}>אין תלמידים זמינים</div>
+                :stuList.map(s=>(
+                  <button key={s.id} style={{...S.btn('default'),marginBottom:5,width:'100%',textAlign:'right'}} onClick={()=>{addLesson({sid:s.id,date:colSlot.date,time:colSlot.time,status:'scheduled',reason:'',durationMins:45,weekStart:wkS(colSlot.date)});closeAll();}}>
+                    {s.name}<span style={{fontSize:11,color:'var(--tx2)',marginRight:6}}> · {s.type==='fixed'?'קבוע':'נייד'}</span>
+                  </button>
+                ));
+            })()}
+            <button style={{...S.btn('ghost'),width:'100%',marginTop:8}} onClick={closeAll}>סגור</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Next Week Planning ─────────────────────────────────────────────────────────
+function TeacherNextWeekTab({ctx}){
+  const {students,lessons,events,NEXT_WK,pubNext,updLesson,addLesson,pubWeek,baseSlots,addBaseSlot,removeBaseSlot,moveBaseSlot,clearPublishedWeek,fixOrphanedSlot,syncWeekToGCal}=ctx;
+  const [cancelledIds,setCancelledIds]=useState(pubNext?.cancelledIds||[]);
+  const [blockedSlots,setBlockedSlots]=useState(pubNext?.blockedSlots||[]);
+  const [extraSlots,setExtraSlots]=useState(pubNext?.extraSlots||[]);
+  const [note,setNote]=useState(pubNext?.note||'');
+  const [wasPublished,setWasPublished]=useState(!!pubNext);
+  const [sel,setSel]=useState(null);
+  const [addingSlot,setAddingSlot]=useState(false);
+  const [addingOpen,setAddingOpen]=useState(false);
+  const [resetConf,setResetConf]=useState(false);
+  const [movingSlot,setMovingSlot]=useState(null);
+  const [moveToDi,setMoveToDi]=useState(1);
+  const [moveToT,setMoveToT]=useState('09:00');
+  const [newDi,setNewDi]=useState(1);
+  const [newT,setNewT]=useState('13:00');
+  const [syncMsg,setSyncMsg]=useState('');
+  const [assigningToSlot,setAssigningToSlot]=useState(false);
+
+  const teachingDays=useMemo(()=>{
+    const dSet=new Set([0,1,2,3,4,5]);
+    extraSlots.forEach(s=>dSet.add(s.di));
+    events.filter(e=>inWk(e.date,NEXT_WK)).forEach(e=>dSet.add(pd(e.date).getDay()));
+    return [...dSet].sort().map(di=>{let d=pd(NEXT_WK);let _g=0;while(d.getDay()!==di&&_g++<8)d.setDate(d.getDate()+1);return{date:fd(d),di};});
+  },[NEXT_WK,extraSlots,events]);
+
+  const calItems=useMemo(()=>{
+    const items=[];const used=new Set();
+    baseSlots.forEach(slot=>{
+      let d=pd(NEXT_WK);let _g=0;while(d.getDay()!==slot.di&&_g++<8)d.setDate(d.getDate()+1);
+      const date=fd(d);const key=`${date}_${slot.t}`;
+      if(used.has(key))return;used.add(key);
+      const isBlocked=blockedSlots.some(b=>b.di===slot.di&&b.t===slot.t);
+      const isCancelled=slot.sid?cancelledIds.includes(slot.sid):false;
+      const fixedStu=slot.sid?students.find(s=>s.id===slot.sid):null;
+      const lesson=lessons.find(l=>l.date===date&&l.time===slot.t&&['scheduled','pending_cancel'].includes(l.status));
+      const bookedStu=lesson?students.find(s=>s.id===lesson.sid):null;
+      const flexStu=bookedStu&&bookedStu.id!==(slot.sid||'')?bookedStu:null;
+      const isOrphaned=!!(slot.sid&&!fixedStu);
+      const isPermOpen=!slot.sid||isOrphaned;
+      items.push({id:key,date,time:slot.t,di:slot.di,lesson,fixedStu,flexStu,isCancelled,isBlocked,isExtra:false,isPermOpen,isOrphaned,isEmpty:!fixedStu&&!lesson&&!isBlocked&&!isOrphaned,durationMins:45,_t:'slot'});
+    });
+    extraSlots.forEach(slot=>{
+      let d=pd(NEXT_WK);let _g=0;while(d.getDay()!==slot.di&&_g++<8)d.setDate(d.getDate()+1);
+      const date=fd(d);const key=`extra_${date}_${slot.t}`;
+      if(used.has(key))return;used.add(key);
+      const lesson=lessons.find(l=>l.date===date&&l.time===slot.t&&['scheduled','pending_cancel'].includes(l.status));
+      const bookedStu=lesson?students.find(s=>s.id===lesson.sid):null;
+      items.push({id:key,date,time:slot.t,di:slot.di,lesson,fixedStu:null,flexStu:bookedStu||null,isCancelled:false,isBlocked:false,isExtra:true,isEmpty:!lesson,durationMins:45,_t:'slot'});
+    });
+    lessons.forEach(lesson=>{
+      if(!['scheduled','pending_cancel'].includes(lesson.status))return;
+      if(!inWk(lesson.date,NEXT_WK))return;
+      const key=`${lesson.date}_${lesson.time}`;
+      if(used.has(key)||used.has(`extra_${lesson.date}_${lesson.time}`))return;
+      if(!validT(lesson.time))return;
+      const bookedStu=students.find(s=>s.id===lesson.sid);
+      if(!bookedStu)return;
+      used.add(key);
+      items.push({id:key,date:lesson.date,time:lesson.time,di:pd(lesson.date).getDay(),lesson,fixedStu:null,flexStu:bookedStu,isCancelled:false,isBlocked:false,isExtra:true,isPermOpen:false,isOrphaned:false,isEmpty:false,durationMins:45,_t:'slot'});
+    });
+    // Add events for next week (read-only display)
+    events.filter(e=>inWk(e.date,NEXT_WK)).forEach(e=>{
+      items.push({...e,_t:'event',time:e.startTime,durationMins:e.endTime?tDiff(e.startTime,e.endTime):60});
+    });
+    return items;
+  },[NEXT_WK,lessons,students,cancelledIds,blockedSlots,extraSlots,baseSlots,events]);
+
+  function renderItem(item,top,ht){
+    if(item._t==='event'){
+      const et=ETYPES[item.type]||ETYPES.performance;
+      return(
+        <div key={item.id} style={{position:'absolute',top,left:2,right:2,height:ht,background:et.bg,border:`1px solid ${et.border}`,borderRadius:5,padding:'3px 5px',overflow:'hidden',pointerEvents:'none',opacity:.8}}>
+          <div style={{fontSize:10,fontWeight:700,color:et.color}}>{et.icon} {item.title}</div>
+          <div style={{fontSize:9,color:et.color}}>{item.startTime}{item.endTime?`–${item.endTime}`:''}</div>
+        </div>
+      );
+    }
+    const {isBlocked,fixedStu,flexStu,isCancelled,isExtra,isEmpty,isPermOpen,isOrphaned}=item;
+    let bg,fg,bd,lbl;
+    if(isBlocked)      {bg='#fee2e2';fg='#991b1b';bd='#fca5a5';lbl='🚫 חסום';}
+    else if(fixedStu&&!isCancelled&&!flexStu){bg='#dbeafe';fg='#1e40af';bd='#93c5fd';lbl=fixedStu.name;}
+    else if(flexStu&&!isBlocked)             {bg='#dcfce7';fg='#166534';bd='#86efac';lbl=flexStu.name;}
+    else if(fixedStu&&isCancelled&&!flexStu) {bg='#f1f5f9';fg='#94a3b8';bd='#cbd5e1';lbl=`${fixedStu.name} (הוסר)`;}
+    else if(isExtra&&isEmpty)                {bg='#fef9c3';fg='#78350f';bd='#fde68a';lbl='⭐ חריגה';}
+    else if(isOrphaned)                      {bg='#ffedd5';fg='#9a3412';bd='#fed7aa';lbl='⚠️ תלמיד שנמחק';}
+    else if(isPermOpen&&!isOrphaned&&!flexStu){bg='#ccfbf1';fg='#0f766e';bd='#5eead4';lbl='🔓 פנוי';}
+    else                                     {bg='#f8fafc';fg='#cbd5e1';bd='#e2e8f0';lbl='פנוי';}
+    return(
+      <div key={item.id} onClick={e=>{e.stopPropagation();setAssigningToSlot(false);setSel(item);}} style={{position:'absolute',top,left:2,right:2,height:ht,background:bg,border:`1px solid ${bd}`,borderRadius:5,padding:'3px 5px',cursor:'pointer',overflow:'hidden',opacity:(isCancelled||isBlocked)?.55:1}}>
+        <div style={{fontSize:11,fontWeight:700,color:fg,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>{lbl}</div>
+        <div style={{fontSize:10,color:fg}}>{item.time}</div>
+      </div>
+    );
+  }
+
+  function handleAction(action){
+    if(!sel)return;
+    if(action==='block')     {setBlockedSlots(bs=>[...bs.filter(b=>!(b.di===sel.di&&b.t===sel.time)),{di:sel.di,t:sel.time}]);if(sel.fixedStu)setCancelledIds(ids=>ids.includes(sel.fixedStu.id)?ids:[...ids,sel.fixedStu.id]);}
+    else if(action==='remove_student') {if(sel.fixedStu)setCancelledIds(ids=>[...ids,sel.fixedStu.id]);}
+    else if(action==='restore')        {setCancelledIds(ids=>ids.filter(id=>id!==sel.fixedStu?.id));setBlockedSlots(bs=>bs.filter(b=>!(b.di===sel.di&&b.t===sel.time)));}
+    else if(action==='unblock')        {setBlockedSlots(bs=>bs.filter(b=>!(b.di===sel.di&&b.t===sel.time)));}
+    else if(action==='remove_flex')    {if(sel.lesson)updLesson(sel.lesson.id,{status:'teacher_cancelled'});}
+    else if(action==='remove_extra')   {setExtraSlots(es=>es.filter(e=>!(e.di===sel.di&&e.t===sel.time)));}
+    else if(action==='del_perm')       {removeBaseSlot(sel.di,sel.time);}
+    else if(action==='fix_orphan')     {fixOrphanedSlot(sel.di,sel.time);}
+    setSel(null);
+  }
+
+  async function doSync(){
+    setSyncMsg('מסנכרן...');
+    const weekLessons=lessons.filter(l=>inWk(l.date,NEXT_WK)&&l.status==='scheduled');
+    await syncWeekToGCal(NEXT_WK,weekLessons);
+    setSyncMsg('✓ סונכרן בהצלחה');
+    setTimeout(()=>setSyncMsg(''),3000);
+  }
+
+  function endT(t){const[h,m]=t.split(':').map(Number);const e=h*60+m+45;return m2t(e);}
+  const dayOpts=[0,1,2,3,4,5].map(di=>({v:di,l:`יום ${DAY[di]}`}));
+
+  return(
+    <div>
+      <div style={{...S.card,border:'1.5px solid var(--bd2)',background:'#f8fbff',marginBottom:10}}>
+        <div style={{...S.row,justifyContent:'space-between',marginBottom:8}}>
+          <span style={{fontSize:13,fontWeight:600,color:'var(--blueD)'}}>שבוע {dd(NEXT_WK)} – {dd(addD(NEXT_WK,6))}{wasPublished&&<span style={{...S.bdg('success'),marginRight:8}}>פורסם ✓</span>}</span>
+        </div>
+        <div style={S.lbl}>הערה לתלמידים (אופציונלי)</div>
+        <textarea style={{...S.inp,minHeight:48,resize:'vertical',marginBottom:10}} placeholder="למשל: ביום שלישי אני זמין גם בערב..." value={note} onChange={e=>setNote(e.target.value)}/>
+        <div style={{...S.row,justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            <button style={S.btn('info')} onClick={()=>setAddingSlot(true)}>＋ שעה חריגה</button>
+            <button style={{...S.btn('success'),background:'#ccfbf1',color:'#0f766e',borderColor:'#5eead4'}} onClick={()=>setAddingOpen(true)}>＋ שעה פנויה קבועה</button>
+          </div>
+          <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+            {syncMsg&&<span style={{fontSize:12,color:'var(--txS)'}}>{syncMsg}</span>}
+            <button style={{...S.btn('ghost'),fontSize:12}} onClick={doSync}>📅 שלח ליומן</button>
+            <button style={{...S.btn('ghost'),color:'#dc2626',borderColor:'#fca5a5',fontSize:12}} onClick={()=>setResetConf(true)}>🗑 נקה</button>
+            <button style={S.btn('primary')} onClick={()=>{pubWeek(NEXT_WK,cancelledIds,blockedSlots,extraSlots,note);setWasPublished(true);}}>{wasPublished?'עדכן פרסום':'פרסם לתלמידים'}</button>
+          </div>
+        </div>
+      </div>
+
+      <div style={{...S.row,gap:8,marginBottom:8,flexWrap:'wrap'}}>
+        {[['#dbeafe','#1e40af','קבוע'],['#dcfce7','#166534','נרשם'],['#ccfbf1','#0f766e','פנוי קבוע'],['#f8fafc','#cbd5e1','פנוי'],['#f1f5f9','#94a3b8','הוסר'],['#fee2e2','#991b1b','חסום'],['#fef9c3','#78350f','חריגה'],...Object.values(ETYPES).map(et=>[et.bg,et.color,et.label])].map(([bg,fg,l])=>(
+          <div key={l} style={{...S.row,gap:3}}><div style={{width:9,height:9,borderRadius:2,background:bg,border:`1px solid ${fg}`,flexShrink:0}}/><span style={{fontSize:10,color:'var(--tx2)'}}>{l}</span></div>
+        ))}
+      </div>
+
+      <WeekCal days={teachingDays} items={calItems} renderItem={renderItem} onColClick={(di,date,t)=>{setNewDi(di);setNewT(t);setAddingSlot(true);}}/>
+
+      {/* Action modal */}
+      {sel&&sel._t==='slot'&&(
+        <Modal onClose={()=>{setSel(null);setAssigningToSlot(false);}}>
+          <div style={{fontSize:15,fontWeight:600,marginBottom:4,direction:'rtl'}}>יום {DAY[sel.di]} · {sel.time}</div>
+          {sel.isBlocked&&<><p style={{fontSize:13,color:'var(--tx2)',margin:'6px 0 14px',direction:'rtl'}}>השעה חסומה</p><button style={{...S.btn('success'),width:'100%',marginBottom:8}} onClick={()=>handleAction('unblock')}>בטל חסימה</button></>}
+          {sel.fixedStu&&!sel.isCancelled&&!sel.isBlocked&&!sel.flexStu&&(
+            <div style={{direction:'rtl'}}>
+              <p style={{fontSize:13,color:'var(--tx2)',margin:'6px 0 10px'}}>שיעור קבוע: <strong>{sel.fixedStu.name}</strong></p>
+              <button style={{...S.btn('info'),width:'100%',marginBottom:8,textAlign:'right'}} onClick={()=>{setMovingSlot({di:sel.di,t:sel.time,sid:sel.fixedStu.id});setMoveToDi(sel.di);setMoveToT(sel.time);setSel(null);}}>✏️ שנה שעה קבועה</button>
+              <button style={{...S.btn('danger'),width:'100%',marginBottom:8,textAlign:'right'}} onClick={()=>handleAction('block')}>🚫 חסום שבוע הבא בלבד</button>
+              <button style={{...S.btn('warning'),width:'100%',marginBottom:8,textAlign:'right'}} onClick={()=>handleAction('remove_student')}>הסר תלמיד לשבוע הבא</button>
+              <button style={{...S.btn('danger'),width:'100%',textAlign:'right'}} onClick={()=>handleAction('del_perm')}>🗑 בטל שיעור קבוע לצמיתות</button>
+            </div>
+          )}
+          {sel.fixedStu&&sel.isCancelled&&!sel.isBlocked&&!sel.flexStu&&(
+            <div style={{direction:'rtl'}}>
+              <p style={{fontSize:13,color:'var(--tx2)',margin:'6px 0 10px'}}><strong>{sel.fixedStu.name}</strong> — הוסר מהשבוע</p>
+              {!assigningToSlot&&(
+                <>
+                  <button style={{...S.btn('primary'),width:'100%',marginBottom:8,textAlign:'right'}} onClick={()=>setAssigningToSlot(true)}>📝 שבץ תלמיד אחר לשעה זו</button>
+                  <button style={{...S.btn('success'),width:'100%',marginBottom:8}} onClick={()=>handleAction('restore')}>↩️ שחזר {sel.fixedStu.name}</button>
+                  <button style={{...S.btn('danger'),width:'100%',marginBottom:8}} onClick={()=>handleAction('block')}>🚫 חסום לחלוטין</button>
+                </>
+              )}
+              {assigningToSlot&&(()=>{
+                const alreadyAt=new Set(lessons.filter(l=>l.date===sel.date&&l.time===sel.time&&['scheduled','pending_cancel'].includes(l.status)).map(l=>l.sid));
+                const stuList=students.filter(s=>!alreadyAt.has(s.id)&&s.id!==sel.fixedStu.id);
+                return(
+                  <>
+                    <p style={{fontSize:13,fontWeight:600,margin:'0 0 10px',color:'var(--blueD)'}}>שיבוץ תלמיד · {sel.time}</p>
+                    {stuList.length===0?<div style={{fontSize:13,color:'var(--tx2)',textAlign:'center',padding:'12px 0'}}>אין תלמידים זמינים</div>:(
+                      stuList.map(s=>(
+                        <button key={s.id} style={{...S.btn('default'),marginBottom:5,width:'100%',textAlign:'right'}} onClick={()=>{addLesson({sid:s.id,date:sel.date,time:sel.time,status:'scheduled',reason:'',durationMins:45,weekStart:wkS(sel.date)});setSel(null);setAssigningToSlot(false);}}>
+                          {s.name}<span style={{fontSize:11,color:'var(--tx2)',marginRight:6}}> · {s.type==='fixed'?'קבוע':'נייד'}</span>
+                        </button>
+                      ))
+                    )}
+                    <button style={{...S.btn('ghost'),width:'100%',marginTop:4}} onClick={()=>setAssigningToSlot(false)}>← חזרה</button>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+          {sel.flexStu&&!sel.isBlocked&&(
+            <div style={{direction:'rtl'}}>
+              <p style={{fontSize:13,color:'var(--tx2)',margin:'6px 0 14px'}}>נרשם: <strong>{sel.flexStu.name}</strong></p>
+              <button style={{...S.btn('danger'),width:'100%',marginBottom:8}} onClick={()=>handleAction('remove_flex')}>הסר מהשעה</button>
+            </div>
+          )}
+          {sel.isExtra&&sel.isEmpty&&!sel.isBlocked&&(
+            <div style={{direction:'rtl'}}>
+              {!assigningToSlot&&(
+                <>
+                  <p style={{fontSize:13,color:'var(--tx2)',margin:'6px 0 10px'}}>שעה חריגה — פנויה</p>
+                  <button style={{...S.btn('primary'),width:'100%',marginBottom:8,textAlign:'right'}} onClick={()=>setAssigningToSlot(true)}>📝 שבץ תלמיד</button>
+                  <button style={{...S.btn('danger'),width:'100%',marginBottom:8}} onClick={()=>handleAction('remove_extra')}>🗑 הסר שעה חריגה</button>
+                </>
+              )}
+              {assigningToSlot&&(()=>{
+                const alreadyAt=new Set(lessons.filter(l=>l.date===sel.date&&l.time===sel.time&&['scheduled','pending_cancel'].includes(l.status)).map(l=>l.sid));
+                const stuList=students.filter(s=>!alreadyAt.has(s.id));
+                return(
+                  <>
+                    <p style={{fontSize:13,fontWeight:600,margin:'0 0 10px',color:'var(--blueD)'}}>שיבוץ תלמיד · {sel.time}</p>
+                    {stuList.length===0?<div style={{fontSize:13,color:'var(--tx2)',textAlign:'center',padding:'12px 0'}}>אין תלמידים זמינים</div>:(
+                      stuList.map(s=>(
+                        <button key={s.id} style={{...S.btn('default'),marginBottom:5,width:'100%',textAlign:'right'}} onClick={()=>{addLesson({sid:s.id,date:sel.date,time:sel.time,status:'scheduled',reason:'',durationMins:45,weekStart:wkS(sel.date)});setSel(null);setAssigningToSlot(false);}}>
+                          {s.name}<span style={{fontSize:11,color:'var(--tx2)',marginRight:6}}> · {s.type==='fixed'?'קבוע':'נייד'}</span>
+                        </button>
+                      ))
+                    )}
+                    <button style={{...S.btn('ghost'),width:'100%',marginTop:4}} onClick={()=>setAssigningToSlot(false)}>← חזרה</button>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+          {sel.isOrphaned&&!sel.isBlocked&&(
+            <div style={{direction:'rtl'}}>
+              <div style={{background:'#fff7ed',borderRadius:8,padding:'10px 12px',marginBottom:10}}>
+                <div style={{fontSize:13,fontWeight:600,color:'#9a3412'}}>⚠️ תלמיד שנמחק</div>
+              </div>
+              <button style={{...S.btn('success'),width:'100%',marginBottom:8}} onClick={()=>handleAction('fix_orphan')}>🔓 הפוך לשעה פנויה</button>
+              <button style={{...S.btn('danger'),width:'100%',marginBottom:8}} onClick={()=>handleAction('del_perm')}>🗑 מחק לצמיתות</button>
+            </div>
+          )}
+          {sel.isPermOpen&&!sel.isOrphaned&&!sel.flexStu&&!sel.isBlocked&&(
+            <div style={{direction:'rtl'}}>
+              {!assigningToSlot&&(
+                <>
+                  <p style={{fontSize:13,color:'var(--tx2)',margin:'6px 0 10px'}}>שעה פנויה קבועה</p>
+                  <button style={{...S.btn('primary'),width:'100%',marginBottom:8,textAlign:'right'}} onClick={()=>setAssigningToSlot(true)}>📝 שבץ תלמיד</button>
+                  <button style={{...S.btn('info'),width:'100%',marginBottom:8,textAlign:'right'}} onClick={()=>{setMovingSlot({di:sel.di,t:sel.time,sid:null});setMoveToDi(sel.di);setMoveToT(sel.time);setSel(null);setAssigningToSlot(false);}}>✏️ שנה שעה/יום</button>
+                  <button style={{...S.btn('danger'),width:'100%',marginBottom:8}} onClick={()=>handleAction('block')}>🚫 חסום השבוע</button>
+                  <button style={{...S.btn('danger'),width:'100%',marginBottom:8}} onClick={()=>handleAction('del_perm')}>🗑 מחק לצמיתות</button>
+                </>
+              )}
+              {assigningToSlot&&(()=>{
+                const alreadyAt=new Set(lessons.filter(l=>l.date===sel.date&&l.time===sel.time&&['scheduled','pending_cancel'].includes(l.status)).map(l=>l.sid));
+                const stuList=students.filter(s=>!alreadyAt.has(s.id));
+                return(
+                  <>
+                    <p style={{fontSize:13,fontWeight:600,margin:'0 0 10px',color:'var(--blueD)'}}>שיבוץ תלמיד · {sel.time}</p>
+                    {stuList.length===0?<div style={{fontSize:13,color:'var(--tx2)',textAlign:'center',padding:'12px 0'}}>אין תלמידים זמינים</div>:(
+                      stuList.map(s=>(
+                        <button key={s.id} style={{...S.btn('default'),marginBottom:5,width:'100%',textAlign:'right'}} onClick={()=>{addLesson({sid:s.id,date:sel.date,time:sel.time,status:'scheduled',reason:'',durationMins:45,weekStart:wkS(sel.date)});setSel(null);setAssigningToSlot(false);}}>
+                          {s.name}<span style={{fontSize:11,color:'var(--tx2)',marginRight:6}}> · {s.type==='fixed'?'קבוע':'נייד'}</span>
+                        </button>
+                      ))
+                    )}
+                    <button style={{...S.btn('ghost'),width:'100%',marginTop:4}} onClick={()=>setAssigningToSlot(false)}>← חזרה</button>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+          <button style={{...S.btn('ghost'),width:'100%',marginTop:4}} onClick={()=>setSel(null)}>סגור</button>
+        </Modal>
+      )}
+
+      {/* Reset confirm */}
+      {resetConf&&(
+        <Modal onClose={()=>setResetConf(false)}>
+          <h3 style={{margin:'0 0 12px',fontSize:16,color:'#dc2626',direction:'rtl'}}>⚠️ איפוס שבוע הבא</h3>
+          <p style={{fontSize:13,color:'var(--tx2)',marginBottom:16,direction:'rtl',lineHeight:1.6}}>יוסרו שעות חריגות, חסימות, ביטולי תלמידים, והפרסום לתלמידים.</p>
+          <button style={{...S.btn('danger'),width:'100%',marginBottom:8}} onClick={()=>{setExtraSlots([]);setBlockedSlots([]);setCancelledIds([]);setNote('');setWasPublished(false);clearPublishedWeek(NEXT_WK);setResetConf(false);}}>🗑 כן, אפס</button>
+          <button style={{...S.btn('ghost'),width:'100%'}} onClick={()=>setResetConf(false)}>ביטול</button>
+        </Modal>
+      )}
+
+      {/* Move slot modal */}
+      {movingSlot&&(
+        <Modal onClose={()=>setMovingSlot(null)}>
+          <h3 style={{margin:'0 0 6px',fontSize:16,fontWeight:600,direction:'rtl'}}>✏️ שינוי שעה קבועה</h3>
+          <p style={{fontSize:12,color:'var(--tx2)',marginBottom:12,direction:'rtl'}}>{DAY[movingSlot.di]} · {movingSlot.t}{movingSlot.sid&&<span style={{color:'var(--txI)',fontWeight:600}}> · {students.find(s=>s.id===movingSlot.sid)?.name}</span>}</p>
+          <div style={{marginBottom:12}}><div style={S.lbl}>יום חדש</div>
+            <select style={S.inp} value={moveToDi} onChange={e=>setMoveToDi(Number(e.target.value))}>
+              {dayOpts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+            </select></div>
+          <div style={{marginBottom:16}}><div style={S.lbl}>שעה חדשה</div>
+            <input type="time" step="300" style={S.inp} value={moveToT} onChange={e=>setMoveToT(e.target.value)}/></div>
+          <button style={{...S.btn('primary'),width:'100%',marginBottom:8}} onClick={()=>{if(!validT(moveToT)){alert('שעה לא תקינה');return;}moveBaseSlot(movingSlot.di,movingSlot.t,moveToDi,moveToT);setMovingSlot(null);}}>✅ שמור</button>
+          <button style={{...S.btn('ghost'),width:'100%'}} onClick={()=>setMovingSlot(null)}>ביטול</button>
+        </Modal>
+      )}
+
+      {/* Add open slot */}
+      {addingOpen&&(
+        <Modal onClose={()=>setAddingOpen(false)}>
+          <h3 style={{margin:'0 0 16px',fontSize:16,fontWeight:500,direction:'rtl'}}>הוסף שעה פנויה קבועה</h3>
+          <div style={{marginBottom:12}}><div style={S.lbl}>יום</div>
+            <select style={S.inp} value={newDi} onChange={e=>setNewDi(Number(e.target.value))}>
+              {dayOpts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+            </select></div>
+          <div style={{marginBottom:16}}><div style={S.lbl}>שעת התחלה</div>
+            <input type="time" step="300" style={S.inp} value={newT} onChange={e=>setNewT(e.target.value)}/></div>
+          <div style={{...S.row,justifyContent:'space-between'}}>
+            <button style={S.btn('ghost')} onClick={()=>setAddingOpen(false)}>ביטול</button>
+            <button style={{...S.btn('success'),background:'#ccfbf1',color:'#0f766e',borderColor:'#5eead4'}} onClick={()=>{if(!validT(newT)){alert('שעה לא תקינה');return;}addBaseSlot({sid:null,di:newDi,t:newT});setAddingOpen(false);}}>🔓 הוסף</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Add exceptional slot */}
+      {addingSlot&&(
+        <Modal onClose={()=>setAddingSlot(false)}>
+          <h3 style={{margin:'0 0 16px',fontSize:16,fontWeight:500,direction:'rtl'}}>הוסף שעה חריגה</h3>
+          <div style={{marginBottom:12}}><div style={S.lbl}>יום</div>
+            <select style={S.inp} value={newDi} onChange={e=>setNewDi(Number(e.target.value))}>
+              {dayOpts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+            </select></div>
+          <div style={{marginBottom:16}}><div style={S.lbl}>שעת התחלה</div>
+            <input type="time" step="300" style={S.inp} value={newT} onChange={e=>setNewT(e.target.value)}/></div>
+          <div style={{...S.row,justifyContent:'space-between'}}>
+            <button style={S.btn('ghost')} onClick={()=>setAddingSlot(false)}>ביטול</button>
+            <button style={S.btn('primary')} onClick={()=>{if(!validT(newT)){alert('שעה לא תקינה');return;}if(!extraSlots.find(e=>e.di===newDi&&e.t===newT))setExtraSlots(es=>[...es,{di:newDi,t:newT}]);setAddingSlot(false);}}>הוסף</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Events Tab (future gigs / productions / performances) ─────────────────────
+function EventForm({initial,onSave,onCancel}){
+  const def={type:'hagbara',title:'',date:today(),startTime:'18:00',endTime:'21:00',location:'',price:'',paidStatus:'unpaid',paidAmount:'',notes:''};
+  const [f,setF]=useState({...def,...(initial||{})});
+  const set=k=>v=>setF(p=>({...p,[k]:v}));
+  const ok=f.title.trim()&&f.date&&f.startTime;
+  return(
+    <div style={{direction:'rtl'}}>
+      <div style={{marginBottom:12}}>
+        <div style={S.lbl}>סוג אירוע</div>
+        <div style={{...S.row,gap:6}}>
+          {Object.entries(ETYPES).map(([k,v])=>(
+            <button key={k} style={{...S.btn(f.type===k?'primary':'default'),flex:1,padding:'7px 4px',fontSize:12}} onClick={()=>set('type')(k)}>{v.icon} {v.label}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{marginBottom:12}}><div style={S.lbl}>שם / תיאור *</div><input style={S.inp} value={f.title} onChange={e=>set('title')(e.target.value)} placeholder="למשל: חתונה כהן, הפקה דני לוי..."/></div>
+      <div style={{display:'flex',gap:8,marginBottom:12}}>
+        <div style={{flex:1.5}}><div style={S.lbl}>תאריך</div><input type="date" style={S.inp} value={f.date} onChange={e=>set('date')(e.target.value)}/></div>
+        <div style={{flex:1}}><div style={S.lbl}>שעת התחלה</div><input type="time" step="300" style={S.inp} value={f.startTime} onChange={e=>set('startTime')(e.target.value)}/></div>
+        <div style={{flex:1}}><div style={S.lbl}>שעת סיום</div><input type="time" step="300" style={S.inp} value={f.endTime} onChange={e=>set('endTime')(e.target.value)}/></div>
+      </div>
+      <div style={{marginBottom:12}}><div style={S.lbl}>מיקום</div><input style={S.inp} value={f.location} onChange={e=>set('location')(e.target.value)} placeholder="עיר, אולם..."/></div>
+      <div style={{display:'flex',gap:8,marginBottom:12}}>
+        <div style={{flex:1}}><div style={S.lbl}>שכר (₪)</div><input type="number" style={S.inp} value={f.price} onChange={e=>set('price')(e.target.value)} placeholder="0"/></div>
+        <div style={{flex:1.5}}><div style={S.lbl}>סטטוס תשלום</div>
+          <select style={S.inp} value={f.paidStatus} onChange={e=>set('paidStatus')(e.target.value)}>
+            {Object.entries(PAY_S).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+          </select></div>
+      </div>
+      {f.paidStatus==='partial'&&(
+        <div style={{marginBottom:12}}><div style={S.lbl}>סכום ששולם (₪)</div><input type="number" style={S.inp} value={f.paidAmount} onChange={e=>set('paidAmount')(e.target.value)} placeholder="0"/></div>
+      )}
+      <div style={{marginBottom:16}}><div style={S.lbl}>הערות</div><textarea style={{...S.inp,minHeight:60,resize:'vertical'}} value={f.notes} onChange={e=>set('notes')(e.target.value)} placeholder="פרטים נוספים..."/></div>
+      <div style={{...S.row,justifyContent:'space-between'}}>
+        <button style={S.btn('ghost')} onClick={onCancel}>ביטול</button>
+        <button style={{...S.btn('primary'),opacity:ok?1:.5}} disabled={!ok} onClick={()=>onSave(f)}>שמור</button>
+      </div>
+    </div>
+  );
+}
+
+function TeacherEventsTab({ctx}){
+  const {events,addEvent,updEvent,deleteEvent}=ctx;
+  const [editEvt,setEditEvt]=useState(null);   // null=closed, {}=new, {id,...}=existing
+  const [delConf,setDelConf]=useState(null);
+  const [filter,setFilter]=useState('upcoming'); // 'upcoming' | 'all'
+
+  const displayed=useMemo(()=>{
+    const base=filter==='upcoming'?events.filter(e=>e.date>=today()):events;
+    return [...base].sort((a,b)=>a.date.localeCompare(b.date)||((a.startTime||'').localeCompare(b.startTime||'')));
+  },[events,filter]);
+
+  // Group by month
+  const grouped=useMemo(()=>{
+    const g={};
+    displayed.forEach(e=>{
+      const m=monOf(e.date);
+      if(!g[m])g[m]=[];
+      g[m].push(e);
+    });
+    return g;
+  },[displayed]);
+
+  async function handleSave(data){
+    try{
+      if(editEvt?.id){
+        await updEvent(editEvt.id,{...data,price:data.price?Number(data.price):null,paidAmount:data.paidAmount?Number(data.paidAmount):null});
+      }else{
+        await addEvent({...data,price:data.price?Number(data.price):null,paidAmount:data.paidAmount?Number(data.paidAmount):null});
+      }
+      setEditEvt(null);
+    }catch(e){ alert('שגיאה בשמירה: '+e.message); }
+  }
+
+  async function handleDelete(){
+    try{
+      if(delConf)await deleteEvent(delConf.id);
+    }catch(e){ alert('שגיאה במחיקה: '+e.message); }
+    setDelConf(null);
+  }
+
+  if(editEvt!==null){
+    const et=editEvt?.id?ETYPES[editEvt.type]||ETYPES.hagbara:null;
+    return(
+      <div>
+        <button style={{...S.btn('ghost'),padding:'6px 0',marginBottom:12}} onClick={()=>setEditEvt(null)}>← חזרה</button>
+        <div style={S.card}>
+          <h3 style={{margin:'0 0 16px',fontSize:16,fontWeight:600}}>{editEvt?.id?`✏️ עריכה: ${et.icon} ${editEvt.title}`:'＋ אירוע חדש'}</h3>
+          <EventForm initial={editEvt?.id?editEvt:null} onSave={handleSave} onCancel={()=>setEditEvt(null)}/>
+        </div>
+      </div>
+    );
+  }
+
+  return(
+    <div>
+      <div style={{...S.row,justifyContent:'space-between',marginBottom:12}}>
+        <div style={{...S.row,gap:0,background:'var(--bg2)',borderRadius:8,padding:3}}>
+          {[['upcoming','עתידיים'],['all','כולם']].map(([k,l])=>(
+            <button key={k} style={{padding:'6px 14px',fontSize:12,fontWeight:500,borderRadius:6,border:'none',cursor:'pointer',background:filter===k?'#fff':'transparent',color:filter===k?'var(--tx1)':'var(--tx2)',boxShadow:filter===k?'0 1px 3px rgba(0,0,0,.08)':'none'}} onClick={()=>setFilter(k)}>{l}</button>
+          ))}
+        </div>
+        <button style={{...S.btn('primary'),padding:'8px 14px',fontSize:13}} onClick={()=>setEditEvt({})}>＋ אירוע חדש</button>
+      </div>
+
+      {displayed.length===0?(
+        <div style={{textAlign:'center',padding:'40px 0',color:'var(--tx2)',fontSize:14}}>{filter==='upcoming'?'אין אירועים מתוכננים':'אין אירועים'}</div>
+      ):(
+        Object.entries(grouped).map(([month,evts])=>(
+          <div key={month}>
+            <div style={{fontSize:13,fontWeight:600,color:'var(--tx2)',margin:'14px 0 6px'}}>{fmtMon(month)}</div>
+            {evts.map(e=>{
+              const et=ETYPES[e.type]||ETYPES.performance;
+              const ps=PAY_S[e.paidStatus||'unpaid'];
+              const dur=e.endTime?`${e.startTime}–${e.endTime}`:e.startTime;
+              const isPast=e.date<today();
+              return(
+                <div key={e.id} style={{...S.card,opacity:isPast?.7:1,borderRight:`4px solid ${et.border}`}}>
+                  <div style={{...S.row,justifyContent:'space-between',marginBottom:4}}>
+                    <span style={{fontSize:15,fontWeight:600}}>{et.icon} {e.title}</span>
+                    <span style={S.bdg(ps.color)}>{ps.label}</span>
+                  </div>
+                  <div style={{fontSize:13,color:'var(--tx2)',marginBottom:4}}>
+                    יום {DAY[pd(e.date).getDay()]} · {dd(e.date)} · {dur}
+                    {e.location&&<span> · 📍 {e.location}</span>}
+                  </div>
+                  {e.price&&(
+                    <div style={{fontSize:13,marginBottom:4}}>
+                      ₪{e.price}
+                      {e.paidStatus==='partial'&&e.paidAmount&&<span style={{color:'var(--txW)'}}> (שולם ₪{e.paidAmount}, נותר ₪{e.price-e.paidAmount})</span>}
+                    </div>
+                  )}
+                  {e.notes&&<div style={{fontSize:12,color:'var(--tx2)',marginBottom:6}}>{e.notes}</div>}
+                  <div style={{...S.row,gap:8,marginTop:4}}>
+                    <button style={{...S.btn('info'),padding:'5px 12px',fontSize:12}} onClick={()=>setEditEvt(e)}>✏️ ערוך</button>
+                    <button style={{...S.btn('danger'),padding:'5px 12px',fontSize:12}} onClick={()=>setDelConf(e)}>🗑 מחק</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))
+      )}
+
+      {delConf&&(
+        <Modal onClose={()=>setDelConf(null)}>
+          <h3 style={{margin:'0 0 10px',fontSize:16,color:'#dc2626',direction:'rtl'}}>מחיקת אירוע</h3>
+          <p style={{fontSize:13,color:'var(--tx2)',marginBottom:16,direction:'rtl'}}>למחוק את <strong>{delConf.title}</strong>?</p>
+          <button style={{...S.btn('danger'),width:'100%',marginBottom:8}} onClick={handleDelete}>🗑 כן, מחק</button>
+          <button style={{...S.btn('ghost'),width:'100%'}} onClick={()=>setDelConf(null)}>ביטול</button>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Students Tab ──────────────────────────────────────────────────────────────
+function TeacherStudentsTab({ctx}){
+  const {students,lessons,TODAY,THIS_WK,NEXT_WK,pubNext,baseSlots,deleteStudent,addLesson,updLesson,updStudent,changeToFixed,changeToFlexible,addBaseSlot,removeBaseSlot,gcalUrl}=ctx;
+  const [sel,setSel]=useState(null);
+  const [delPr,setDelPr]=useState(false);
+  const [typeModal,setTypeModal]=useState(false);
+  const [fixDi,setFixDi]=useState(1);
+  const [fixT,setFixT]=useState('09:00');
+  const [keepSlotModal,setKeepSlotModal]=useState(false);
+  const [moveModal,setMoveModal]=useState(null);
+  const [moveSlots,setMoveSlots]=useState([]);
+  const [cancelId,setCancelId]=useState(null);
+  const [editPrice,setEditPrice]=useState(false);
+  const [priceVal,setPriceVal]=useState('');
+  const [editContact,setEditContact]=useState(false);
+  const [contactPhone,setContactPhone]=useState('');
+  const [contactParent,setContactParent]=useState('');
+  const [contactParentPhone,setContactParentPhone]=useState('');
+  const [addModal,setAddModal]=useState(false);
+  const [newName,setNewName]=useState('');
+  const [newPhone,setNewPhone]=useState('');
+  const [newType,setNewType]=useState('fixed');
+  const [newDi,setNewDi]=useState(1);
+  const [newTime,setNewTime]=useState('09:00');
+  const [newPrice,setNewPrice]=useState('');
+  const [newParent,setNewParent]=useState('');
+  const [newParentPhone,setNewParentPhone]=useState('');
+  const [addBusy,setAddBusy]=useState(false);
+  const [lastCode,setLastCode]=useState(null);
+  const [assignModal,setAssignModal]=useState(false);
+  const [assignDate,setAssignDate]=useState('');
+  const [assignTime,setAssignTime]=useState('09:00');
+  const [gcalMsg,setGcalMsg]=useState('');
+
+  function showGCal(){ if(gcalUrl){setGcalMsg('📅 עודכן ביומן Google');setTimeout(()=>setGcalMsg(''),3000);} }
+
+  async function addStudent(){
+    if(!newName.trim()) return;
+    setAddBusy(true);
+    try{
+      const phone=newPhone.replace(/[^0-9]/g,'');
+      const code=phone.length>=6?phone:'STU'+Math.random().toString(36).slice(2,7).toUpperCase();
+      const uid='manual_'+Date.now();
+      const db=window._db;
+      await db.collection('biz_students').doc(uid).set({
+        uid, name:newName.trim(), phone:newPhone.trim(), parent:newParent.trim(), parentPhone:newParentPhone.trim(),
+        type:newType,
+        di:newType==='fixed'?newDi:null,
+        t:newType==='fixed'?newTime:null,
+        role:'student', status:'approved', loginCode:code,
+        pricePerLesson:newPrice?Number(newPrice):0,
+        createdAt:firebase.firestore.FieldValue.serverTimestamp()
+      });
+      if(newType==='fixed') await ctx.addBaseSlot({sid:uid,di:newDi,t:newTime});
+      setLastCode(code);
+      setNewName(''); setNewPhone(''); setNewType('fixed'); setNewDi(1); setNewTime('09:00'); setNewPrice(''); setNewParent(''); setNewParentPhone('');
+    }catch(e){ alert('שגיאה: '+e.message); }
+    setAddBusy(false);
+  }
+
+  function getStats(sid){
+    const my=lessons.filter(l=>l.sid===sid);
+    return{
+      happened: my.filter(l=>['cancelled_unjustified','no_show','completed'].includes(l.status)||(l.status==='scheduled'&&l.date<TODAY)).length,
+      justified:  my.filter(l=>l.status==='cancelled_justified').length,
+      unjustified:my.filter(l=>l.status==='cancelled_unjustified').length,
+      upcoming:   my.filter(l=>l.status==='scheduled'&&l.date>=TODAY).length,
+      pending:    my.filter(l=>l.status==='pending_cancel').length,
+    };
+  }
+
+  function getOpenSlots(lesson){
+    const slots=[];
+    const base=baseSlots.filter(s=>validT(s.t)&&(s.sid===null||!students.some(st=>st.id===s.sid&&st.id!==lesson.sid)));
+    base.forEach(s=>{
+      let d=pd(THIS_WK);let _g=0;while(d.getDay()!==s.di&&_g++<8)d.setDate(d.getDate()+1);
+      const date=fd(d);
+      if(date<TODAY)return;
+      if(date===lesson.date&&s.t===lesson.time)return;
+      const taken=lessons.some(l=>l.date===date&&l.time===s.t&&['scheduled','pending_cancel'].includes(l.status)&&l.sid!==lesson.sid&&students.some(st=>st.id===l.sid));
+      if(!taken)slots.push({date,time:s.t,di:s.di,week:'this'});
+    });
+    if(pubNext){
+      const nw=[...baseSlots.filter(s=>validT(s.t)&&(s.sid===null||pubNext.cancelledIds?.includes(s.sid))).filter(s=>!pubNext.blockedSlots?.some(b=>b.di===s.di&&b.t===s.t)),
+                ...(pubNext.extraSlots||[]).filter(s=>validT(s.t)).filter(s=>!pubNext.blockedSlots?.some(b=>b.di===s.di&&b.t===s.t)).map(s=>({di:s.di,t:s.t,sid:null}))];
+      nw.forEach(s=>{
+        let d=pd(NEXT_WK);let _g=0;while(d.getDay()!==s.di&&_g++<8)d.setDate(d.getDate()+1);
+        const date=fd(d);
+        if(date===lesson.date&&s.t===lesson.time)return;
+        const taken=lessons.some(l=>l.date===date&&l.time===s.t&&['scheduled','pending_cancel'].includes(l.status)&&l.sid!==lesson.sid&&students.some(st=>st.id===l.sid));
+        if(!taken)slots.push({date,time:s.t,di:s.di,week:'next'});
+      });
+    }
+    return slots.sort((a,b)=>(a.date||'').localeCompare(b.date||'')||(a.time||'').localeCompare(b.time||''));
+  }
+
+  function getAvailableSlots(){
+    const slots=[];
+    const base=baseSlots.filter(s=>validT(s.t)&&s.sid===null);
+    base.forEach(s=>{
+      let d=pd(THIS_WK);let _g=0;while(d.getDay()!==s.di&&_g++<8)d.setDate(d.getDate()+1);
+      const date=fd(d);
+      if(date<TODAY)return;
+      const taken=lessons.some(l=>l.date===date&&l.time===s.t&&['scheduled','pending_cancel'].includes(l.status)&&students.some(st=>st.id===l.sid));
+      if(!taken)slots.push({date,time:s.t,di:s.di,week:'this'});
+    });
+    if(pubNext){
+      const nw=[...baseSlots.filter(s=>validT(s.t)&&(s.sid===null||pubNext.cancelledIds?.includes(s.sid))).filter(s=>!pubNext.blockedSlots?.some(b=>b.di===s.di&&b.t===s.t)),
+                ...(pubNext.extraSlots||[]).filter(s=>validT(s.t)).filter(s=>!pubNext.blockedSlots?.some(b=>b.di===s.di&&b.t===s.t)).map(s=>({di:s.di,t:s.t,sid:null}))];
+      nw.forEach(s=>{
+        let d=pd(NEXT_WK);let _g=0;while(d.getDay()!==s.di&&_g++<8)d.setDate(d.getDate()+1);
+        const date=fd(d);
+        const taken=lessons.some(l=>l.date===date&&l.time===s.t&&['scheduled','pending_cancel'].includes(l.status)&&students.some(st=>st.id===l.sid));
+        if(!taken)slots.push({date,time:s.t,di:s.di,week:'next'});
+      });
+    }
+    return slots.sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
+  }
+  if(sel){
+    const stu=students.find(s=>s.id===sel);
+    if(!stu){setSel(null);return null;}
+    const stats=getStats(sel);
+    const history=lessons.filter(l=>l.sid===sel&&!['scheduled','pending_cancel'].includes(l.status)).sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,20);
+    const upcoming=lessons.filter(l=>l.sid===sel&&l.status==='scheduled'&&l.date>=TODAY).sort((a,b)=>(a.date||'').localeCompare(b.date||'')).slice(0,10);
+    const pct=Math.min(Math.round(stats.happened/32*100),100);
+    return(
+      <div>
+        <div style={{...S.row,justifyContent:'space-between',marginBottom:12}}>
+          <button style={{...S.btn('ghost'),padding:'6px 0'}} onClick={()=>setSel(null)}>← חזרה לרשימה</button>
+          <button style={{...S.btn('danger'),padding:'5px 12px',fontSize:12}} onClick={()=>setDelPr(true)}>🗑 מחק תלמיד</button>
+        </div>
+        <div style={S.card}>
+          <div style={{fontSize:18,fontWeight:500,marginBottom:4}}>{stu.name}</div>
+          <div style={{fontSize:13,color:'var(--tx2)',marginBottom:12}}>{stu.type==='fixed'?`תלמיד קבוע · יום ${DAY[stu.di]} · ${stu.t}`:'תלמיד נייד'} · קוד: {stu.code}</div>
+          <div style={{fontSize:13,marginBottom:8}}><span style={{fontWeight:500}}>{stats.happened}</span> / 32 שיעורים שהתקיימו</div>
+          <div style={{height:8,background:'var(--bg2)',borderRadius:4,marginBottom:12,overflow:'hidden'}}>
+            <div style={{height:'100%',width:`${pct}%`,background:pct>=100?'var(--txS)':'var(--blue)',borderRadius:4}}/>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+            {[['התקיימו',stats.happened,'success'],['ממתינים',stats.upcoming,'info'],['מוצדקים',stats.justified,'warning'],['לא מוצדקים',stats.unjustified,'danger']].map(([l,v,c])=>(
+              <div key={l} style={{background:`var(--bg${c==='danger'?'D':c==='success'?'S':c==='warning'?'W':'I'})`,borderRadius:'var(--r2)',padding:'8px 10px'}}>
+                <div style={{fontSize:11,color:`var(--tx${c==='danger'?'D':c==='success'?'S':c==='warning'?'W':'I'})`}}>{l}</div>
+                <div style={{fontSize:20,fontWeight:500,color:`var(--tx${c==='danger'?'D':c==='success'?'S':c==='warning'?'W':'I'})`}}>{v}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Contact info: student phone + parent */}
+        <div style={S.card}>
+          <div style={{...S.row,justifyContent:'space-between',marginBottom:8}}>
+            <span style={{fontSize:13,fontWeight:500}}>פרטי קשר</span>
+            {!editContact&&<button style={{...S.btn('info'),padding:'4px 10px',fontSize:11}} onClick={()=>{setContactPhone(stu.phone||'');setContactParent(stu.parent||'');setContactParentPhone(stu.parentPhone||'');setEditContact(true);}}>✏️ ערוך</button>}
+          </div>
+          {!editContact?(
+            <>
+              <div style={{fontSize:13,color:'var(--tx2)',marginBottom:4}}>📱 תלמיד: {stu.phone||'—'}</div>
+              {stu.parent
+                ?<div style={{fontSize:13,color:'var(--tx2)'}}>👤 הורה: {stu.parent}{stu.parentPhone?` · 📱 ${stu.parentPhone}`:''}</div>
+                :<div style={{fontSize:13,color:'var(--tx2)'}}>👤 הורה: לא הוגדר</div>}
+            </>
+          ):(
+            <>
+              <div style={{marginBottom:8}}><div style={S.lbl}>טלפון תלמיד</div><input type="tel" style={S.inp} value={contactPhone} onChange={e=>setContactPhone(e.target.value)} placeholder="050-0000000"/></div>
+              <div style={{marginBottom:8}}><div style={S.lbl}>שם הורה (אופציונלי)</div><input style={S.inp} value={contactParent} onChange={e=>setContactParent(e.target.value)} placeholder="שם פרטי ומשפחה"/></div>
+              <div style={{marginBottom:10}}><div style={S.lbl}>טלפון הורה</div><input type="tel" style={S.inp} value={contactParentPhone} onChange={e=>setContactParentPhone(e.target.value)} placeholder="050-0000000"/></div>
+              <div style={S.row}>
+                <button style={{...S.btn('primary'),flex:1}} onClick={()=>{updStudent(sel,{phone:contactPhone.trim(),parent:contactParent.trim(),parentPhone:contactParentPhone.trim()});setEditContact(false);}}>שמור</button>
+                <button style={{...S.btn('ghost'),flex:1}} onClick={()=>setEditContact(false)}>ביטול</button>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Price per lesson */}
+        <div style={S.card}>
+          <div style={{...S.row,justifyContent:'space-between',marginBottom:8}}>
+            <span style={{fontSize:13,fontWeight:500}}>מחיר לשיעור</span>
+            <span style={{fontSize:20,fontWeight:700,color:'var(--blueD)'}}>₪{stu.pricePerLesson||0}</span>
+          </div>
+          {!editPrice?(
+            <button style={{...S.btn('info'),width:'100%',fontSize:12}} onClick={()=>{setPriceVal(String(stu.pricePerLesson||''));setEditPrice(true);}}>✏️ שנה מחיר</button>
+          ):(
+            <div style={S.row}>
+              <input type="number" style={{...S.inp,flex:1}} value={priceVal} onChange={e=>setPriceVal(e.target.value)} placeholder="₪" autoFocus/>
+              <button style={S.btn('primary')} onClick={()=>{updStudent(sel,{pricePerLesson:Number(priceVal)||0});setEditPrice(false);}}>שמור</button>
+              <button style={S.btn('ghost')} onClick={()=>setEditPrice(false)}>ביטול</button>
+            </div>
+          )}
+        </div>
+
+        {/* Type management */}
+        <div style={S.card}>
+          <div style={{...S.row,justifyContent:'space-between',marginBottom:4}}>
+            <span style={{fontSize:13,fontWeight:500}}>סוג תלמיד</span>
+            <span style={S.bdg(stu.type==='fixed'?'info':'success')}>{stu.type==='fixed'?`קבוע · ${DAY[stu.di]} · ${stu.t}`:'נייד'}</span>
+          </div>
+          {stu.type==='flexible'&&<button style={{...S.btn('info'),width:'100%',marginTop:6,fontSize:12}} onClick={()=>{setFixDi(1);setFixT('09:00');setTypeModal(true);}}>🔒 הפוך לתלמיד קבוע</button>}
+          {stu.type==='flexible'&&<button style={{...S.btn('success'),width:'100%',marginTop:6,fontSize:12}} onClick={()=>{setAssignDate(today());setAssignTime('09:00');setAssignModal(true);}}>📅 שבץ שיעור</button>}
+          {stu.type==='fixed'&&<button style={{...S.btn('warning'),width:'100%',marginTop:6,fontSize:12}} onClick={()=>setKeepSlotModal(true)}>🔓 הפוך לתלמיד נייד</button>}
+        </div>
+
+        {/* GCal feedback */}
+        {gcalMsg&&<div style={{...S.card,background:'#f0fdf4',border:'1px solid #86efac',fontSize:13,color:'#166534',textAlign:'center',padding:'8px 12px',marginBottom:6}}>{gcalMsg}</div>}
+
+        {/* Upcoming lessons */}
+        {upcoming.length>0&&(
+          <div>
+            <div style={{fontSize:13,fontWeight:500,color:'var(--tx2)',margin:'10px 0 6px'}}>שיעורים קרובים</div>
+            {upcoming.map(l=>(
+              <div key={l.id} style={{...S.card,display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 12px'}}>
+                <div style={{fontSize:13}}>יום {DAY[pd(l.date).getDay()]} {dd(l.date)} · {l.time}</div>
+                <div style={S.row}>
+                  <button style={{...S.btn('info'),padding:'4px 10px',fontSize:11}} onClick={()=>{setMoveSlots(getOpenSlots(l));setMoveModal(l);}}>העבר</button>
+                  <button style={{...S.btn('danger'),padding:'4px 10px',fontSize:11}} onClick={()=>setCancelId(l.id)}>בטל</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{fontSize:13,fontWeight:500,color:'var(--tx2)',margin:'12px 0 6px'}}>היסטוריה</div>
+        {history.map(l=>(
+          <div key={l.id} style={{...S.card,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <div><div style={{fontSize:13,marginBottom:2}}>{dd(l.date)} · {l.time}</div>{l.reason&&<div style={{fontSize:12,color:'var(--tx2)'}}>{l.reason}</div>}<HolBadge date={l.date}/></div>
+            <SBadge status={l.status}/>
+          </div>
+        ))}
+
+        {/* Modals */}
+        {typeModal&&(
+          <Modal onClose={()=>setTypeModal(false)}>
+            <h3 style={{margin:'0 0 14px',fontSize:16,fontWeight:600,direction:'rtl'}}>🔒 הפוך לתלמיד קבוע</h3>
+            <div style={{marginBottom:12}}><div style={S.lbl}>יום קבוע</div><select style={S.inp} value={fixDi} onChange={e=>setFixDi(Number(e.target.value))}>{[0,1,2,3,4].map(d=><option key={d} value={d}>יום {DAY[d]}</option>)}</select></div>
+            <div style={{marginBottom:16}}><div style={S.lbl}>שעה קבועה</div><input type="time" step="900" style={S.inp} value={fixT} onChange={e=>setFixT(e.target.value)}/></div>
+            <button style={{...S.btn('primary'),width:'100%',marginBottom:8}} onClick={()=>{if(!validT(fixT)){alert('שעה לא תקינה');return;}changeToFixed(sel,fixDi,fixT);setTypeModal(false);}}>✅ שמור</button>
+            <button style={{...S.btn('ghost'),width:'100%'}} onClick={()=>setTypeModal(false)}>ביטול</button>
+          </Modal>
+        )}
+        {keepSlotModal&&(
+          <Modal onClose={()=>setKeepSlotModal(false)}>
+            <h3 style={{margin:'0 0 10px',fontSize:16,fontWeight:600,direction:'rtl'}}>🔓 הפוך לתלמיד נייד</h3>
+            <p style={{fontSize:13,color:'var(--tx2)',margin:'0 0 16px',direction:'rtl'}}>מה לעשות עם המשבצת של {stu.name}?</p>
+            <button style={{...S.btn('success'),width:'100%',marginBottom:8,textAlign:'right'}} onClick={()=>{changeToFlexible(sel,true);setKeepSlotModal(false);}}><div style={{fontWeight:600}}>🔓 הפוך למשבצת פנויה</div></button>
+            <button style={{...S.btn('danger'),width:'100%',marginBottom:8,textAlign:'right'}} onClick={()=>{changeToFlexible(sel,false);setKeepSlotModal(false);}}><div style={{fontWeight:600}}>🗑 הסר את המשבצת</div></button>
+            <button style={{...S.btn('ghost'),width:'100%'}} onClick={()=>setKeepSlotModal(false)}>ביטול</button>
+          </Modal>
+        )}
+        {cancelId&&(()=>{const cl=lessons.find(x=>x.id===cancelId);return(
+          <Modal onClose={()=>setCancelId(null)}>
+            <h3 style={{margin:'0 0 4px',fontSize:16,color:'#dc2626',direction:'rtl'}}>ביטול שיעור חד פעמי</h3>
+            {cl&&<p style={{fontSize:13,color:'var(--tx2)',margin:'0 0 14px',direction:'rtl'}}>יום {DAY[pd(cl.date).getDay()]} · {dd(cl.date)} · {cl.time}</p>}
+            <p style={{fontSize:12,color:'var(--tx2)',margin:'0 0 10px',direction:'rtl'}}>בחר סיבת ביטול:</p>
+            <button style={{...S.btn('warning'),width:'100%',marginBottom:8,textAlign:'right',padding:'10px 14px'}} onClick={()=>{updLesson(cancelId,{status:'cancelled_justified'});showGCal();setCancelId(null);}}>
+              <div><div style={{fontWeight:600}}>✅ מוצדק</div><div style={{fontSize:11,marginTop:2,opacity:.8}}>מחלה, נסיבות בלתי צפויות — לא ייספר לחובת התלמיד</div></div>
+            </button>
+            <button style={{...S.btn('danger'),width:'100%',marginBottom:8,textAlign:'right',padding:'10px 14px'}} onClick={()=>{updLesson(cancelId,{status:'cancelled_unjustified'});showGCal();setCancelId(null);}}>
+              <div><div style={{fontWeight:600}}>❌ לא מוצדק</div><div style={{fontSize:11,marginTop:2,opacity:.8}}>ביטול ללא סיבה מוצדקת — ייספר לחובת התלמיד</div></div>
+            </button>
+            <button style={{...S.btn('info'),width:'100%',marginBottom:12,textAlign:'right',padding:'10px 14px'}} onClick={()=>{updLesson(cancelId,{status:'teacher_cancelled'});showGCal();setCancelId(null);}}>
+              <div><div style={{fontWeight:600}}>🎸 בוטל ע"י המורה</div><div style={{fontSize:11,marginTop:2,opacity:.8}}>ביטול מטעמי המורה — לא ייספר לחובת התלמיד</div></div>
+            </button>
+            <button style={{...S.btn('ghost'),width:'100%'}} onClick={()=>setCancelId(null)}>חזרה</button>
+          </Modal>
+        );})()}
+        {moveModal&&(
+          <Modal onClose={()=>setMoveModal(null)}>
+            <h3 style={{margin:'0 0 6px',fontSize:16,fontWeight:500,direction:'rtl'}}>העברת שיעור</h3>
+            <div style={{background:'var(--bg2)',borderRadius:8,padding:'8px 12px',marginBottom:14,direction:'rtl'}}>
+              <div style={{fontSize:11,color:'var(--tx2)',marginBottom:2}}>שיעור נוכחי</div>
+              <div style={{fontSize:14,fontWeight:500}}>יום {DAY[pd(moveModal.date).getDay()]} {dd(moveModal.date)} · {moveModal.time}</div>
+            </div>
+            {moveSlots.length===0?<div style={{fontSize:13,color:'var(--tx2)',textAlign:'center',padding:'10px 0'}}>אין שעות פנויות</div>:(
+              ['this','next'].map(wk=>{
+                const ws=moveSlots.filter(s=>s.week===wk);
+                if(!ws.length)return null;
+                return(<div key={wk} style={{marginBottom:10}}>
+                  <div style={{fontSize:11,fontWeight:600,color:'var(--tx2)',marginBottom:6,direction:'rtl'}}>{wk==='this'?'השבוע':'שבוע הבא'}</div>
+                  {ws.map(sl=>(
+                    <button key={`${sl.date}_${sl.time}`} style={{...S.btn('default'),marginBottom:5,width:'100%',textAlign:'right'}} onClick={()=>{updLesson(moveModal.id,{status:'moved'});addLesson({sid:moveModal.sid,date:sl.date,time:sl.time,weekStart:wkS(sl.date),status:'scheduled',reason:'',durationMins:45});showGCal();setMoveModal(null);}}>
+                      יום {DAY[sl.di]} {dd(sl.date)} · {sl.time}
+                    </button>
+                  ))}
+                </div>);
+              })
+            )}
+            <button style={{...S.btn('ghost'),width:'100%',marginTop:4}} onClick={()=>setMoveModal(null)}>ביטול</button>
+          </Modal>
+        )}
+        {assignModal&&(
+          <Modal onClose={()=>setAssignModal(false)}>
+            <h3 style={{margin:'0 0 14px',fontSize:16,fontWeight:600,direction:'rtl'}}>📅 שבץ שיעור — {stu.name}</h3>
+            {(()=>{const avail=getAvailableSlots();
+              if(!avail.length)return <div style={{fontSize:13,color:'var(--tx2)',textAlign:'center',padding:'10px 0'}}>אין שעות פנויות</div>;
+              return ['this','next'].map(wk=>{
+                const ws=avail.filter(s=>s.week===wk);
+                if(!ws.length)return null;
+                return(<div key={wk} style={{marginBottom:10}}>
+                  <div style={{fontSize:11,fontWeight:600,color:'var(--tx2)',marginBottom:6}}>{wk==='this'?'השבוע':'שבוע הבא'}</div>
+                  {ws.map(sl=>(
+                    <button key={sl.date+'_'+sl.time} style={{...S.btn('default'),marginBottom:5,width:'100%',textAlign:'right'}} onClick={()=>{addLesson({sid:sel,date:sl.date,time:sl.time,status:'scheduled',reason:'',durationMins:45,weekStart:wkS(sl.date)});setAssignModal(false);}}>
+                      יום {DAY[sl.di]} {dd(sl.date)} · {sl.time}
+                    </button>
+                  ))}
+                </div>);
+              });
+            })()}
+            <button style={{...S.btn('ghost'),width:'100%',marginTop:4}} onClick={()=>setAssignModal(false)}>ביטול</button>
+          </Modal>
+        )}
+        {delPr&&(
+          <Modal onClose={()=>setDelPr(false)}>
+            <div style={{fontSize:16,fontWeight:700,marginBottom:8,direction:'rtl'}}>מחיקת {stu.name}</div>
+            {stu.type==='fixed'&&stu.di!=null&&stu.t?(
+              <>
+                <p style={{fontSize:13,color:'var(--tx2)',margin:'0 0 16px',direction:'rtl'}}>מה לעשות עם המשבצת?<br/><strong>יום {DAY[stu.di]} · {stu.t}</strong></p>
+                <button style={{...S.btn('success'),width:'100%',marginBottom:10,textAlign:'right'}} onClick={()=>{addBaseSlot(stu.di,stu.t,null);deleteStudent(sel);setDelPr(false);setSel(null);}}><div style={{fontWeight:700}}>🔓 הפוך למשבצת פנויה</div></button>
+                <button style={{...S.btn('danger'),width:'100%',marginBottom:10,textAlign:'right'}} onClick={()=>{deleteStudent(sel);setDelPr(false);setSel(null);}}><div style={{fontWeight:700}}>🗑 מחק את המשבצת</div></button>
+              </>
+            ):(
+              <button style={{...S.btn('danger'),width:'100%',marginBottom:10}} onClick={()=>{deleteStudent(sel);setDelPr(false);setSel(null);}}>🗑 מחק תלמיד</button>
+            )}
+            <button style={{...S.btn('ghost'),width:'100%'}} onClick={()=>setDelPr(false)}>ביטול</button>
+          </Modal>
+        )}
+      </div>
+    );
+  }
+
+  return(
+    <div>
+      <div style={{...S.row,justifyContent:'flex-end',marginBottom:8}}>
+        <button style={S.btn('primary')} onClick={()=>{setAddModal(true);setLastCode(null);}}>＋ הוסף תלמיד</button>
+      </div>
+
+      {addModal&&(
+        <Modal onClose={()=>setAddModal(false)}>
+          <h3 style={{margin:'0 0 16px',fontSize:16,fontWeight:600}}>הוסף תלמיד חדש</h3>
+          {lastCode?(
+            <div style={{textAlign:'center',padding:'8px 0'}}>
+              <div style={{fontSize:36,marginBottom:8}}>✅</div>
+              <div style={{fontSize:15,fontWeight:600,marginBottom:4}}>{newName||'התלמיד'} נוסף!</div>
+              <div style={{fontSize:13,color:'var(--tx2)',marginBottom:12}}>קוד כניסה אישי:</div>
+              <div style={{fontSize:28,fontWeight:700,letterSpacing:4,color:'var(--blueD)',background:'var(--bg2)',borderRadius:10,padding:'12px 24px',marginBottom:16}}>{lastCode}</div>
+              <div style={{fontSize:12,color:'var(--tx2)',marginBottom:20}}>שמור את הקוד הזה ושלח לתלמיד</div>
+              <button style={{...S.btn('primary'),width:'100%'}} onClick={()=>setAddModal(false)}>סגור</button>
+            </div>
+          ):(
+            <>
+              {[['שם מלא *',newName,setNewName,'text'],['טלפון',newPhone,setNewPhone,'tel'],['שם הורה (אופציונלי)',newParent,setNewParent,'text'],['טלפון הורה',newParentPhone,setNewParentPhone,'tel']].map(([l,v,s,t])=>(
+                <div key={l} style={{marginBottom:10}}>
+                  <div style={S.lbl}>{l}</div>
+                  <input style={S.inp} type={t} value={v} onChange={e=>s(e.target.value)}/>
+                </div>
+              ))}
+              <div style={{marginBottom:10}}>
+                <div style={S.lbl}>סוג</div>
+                <div style={{...S.row,gap:0,background:'var(--bg2)',borderRadius:8,padding:3}}>
+                  {[['fixed','קבוע'],['flexible','נייד']].map(([k,l])=>(
+                    <button key={k} style={{flex:1,padding:'7px 0',fontSize:13,fontWeight:500,borderRadius:6,border:'none',cursor:'pointer',background:newType===k?'#fff':'transparent',color:newType===k?'var(--tx1)':'var(--tx2)'}} onClick={()=>setNewType(k)}>{l}</button>
+                  ))}
+                </div>
+              </div>
+              {newType==='fixed'&&(
+                <div style={{...S.row,marginBottom:10}}>
+                  <div style={{flex:1}}><div style={S.lbl}>יום</div>
+                    <select style={S.inp} value={newDi} onChange={e=>setNewDi(Number(e.target.value))}>
+                      {[0,1,2,3,4,5].map(d=><option key={d} value={d}>יום {DAY[d]}</option>)}
+                    </select></div>
+                  <div style={{flex:1}}><div style={S.lbl}>שעה</div>
+                    <input type="time" step="900" style={S.inp} value={newTime} onChange={e=>setNewTime(e.target.value)}/></div>
+                </div>
+              )}
+              <div style={{marginBottom:14}}>
+                <div style={S.lbl}>מחיר לשיעור (₪)</div>
+                <input style={S.inp} type="number" value={newPrice} onChange={e=>setNewPrice(e.target.value)} placeholder="0"/>
+              </div>
+              <div style={S.row}>
+                <button style={{...S.btn('ghost'),flex:1}} onClick={()=>setAddModal(false)}>ביטול</button>
+                <button style={{...S.btn('primary'),flex:2}} disabled={!newName.trim()||addBusy} onClick={addStudent}>{addBusy?'מוסיף...':'הוסף תלמיד'}</button>
+              </div>
+            </>
+          )}
+        </Modal>
+      )}
+
+      {['fixed','flexible'].map(type=>(
+        <div key={type}>
+          <div style={{fontSize:13,fontWeight:500,color:'var(--tx2)',margin:'10px 0 6px'}}>{type==='fixed'?'תלמידים קבועים':'תלמידים ניידים'}</div>
+          {students.filter(s=>s.type===type).map(s=>{
+            const stats=getStats(s.id);
+            const pct=Math.min(Math.round(stats.happened/32*100),100);
+            return(
+              <button key={s.id} style={{...S.card,width:'100%',textAlign:'right',cursor:'pointer',display:'block'}} onClick={()=>setSel(s.id)}>
+                <div style={{...S.row,justifyContent:'space-between',marginBottom:6}}>
+                  <span style={{fontSize:14,fontWeight:500}}>{s.name}</span>
+                  <div style={S.row}>
+                    {s.pricePerLesson&&<span style={{fontSize:12,color:'var(--txI)'}}>₪{s.pricePerLesson}/שיעור</span>}
+                    <span style={{fontSize:13,color:'var(--tx2)'}}>{stats.happened}/32</span>
+                  </div>
+                </div>
+                <div style={{height:5,background:'var(--bg2)',borderRadius:3,overflow:'hidden'}}>
+                  <div style={{height:'100%',width:`${pct}%`,background:pct>=100?'#27500A':'var(--blue)',borderRadius:3}}/>
+                </div>
+                {stats.pending>0&&<span style={{...S.bdg('warning'),marginTop:6,display:'inline-block'}}>ממתין לביטול</span>}
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Finance Tab ───────────────────────────────────────────────────────────────
+function TeacherFinanceTab({ctx}){
+  const {lessons,students,events,payments,setPayment,updEvent,TODAY}=ctx;
+  const [month,setMonth]=useState(monOf(TODAY));
+  const [payModal,setPayModal]=useState(null); // {studentId, totalDue, existing}
+  const [payAmt,setPayAmt]=useState('');
+  const [payNote,setPayNote]=useState('');
+  const [msgModal,setMsgModal]=useState(null); // {stu,phone,text}
+
+  function buildBillMsg(row){
+    const{stu,happened,totalDue}=row;
+    const stuFirst=firstName(stu.name);
+    if(stu.parent){
+      const parentFirst=firstName(stu.parent);
+      return `שלום ${parentFirst},\nבחודש ${fmtMon(month)} התקיימו ל${stuFirst} ${happened} שיעורים\nסך הכל ${totalDue} ש״ח\nתודה רבה!`;
+    }
+    return `היי ${stuFirst},\nבחודש ${fmtMon(month)} התקיימו ${happened} שיעורים\nסך הכל ${totalDue} ש״ח\nתודה רבה!`;
+  }
+  function openMsgModal(row){
+    const{stu}=row;
+    const phone=stu.parent?(stu.parentPhone||stu.phone):stu.phone;
+    setMsgModal({stu,phone,text:buildBillMsg(row)});
+  }
+  function sendBillMsg(){
+    if(!msgModal)return;
+    if(!phoneDigits(msgModal.phone)){alert('לא הוגדר מספר טלפון לשליחה — אפשר להוסיף בכרטיס התלמיד');return;}
+    window.open(waLink(msgModal.phone,msgModal.text),'waSendTab');
+    setMsgModal(null);
+  }
+
+  const billing=useMemo(()=>{
+    const[ms,me]=monRange(month);
+    return students.filter(s=>s.type!=='deleted').map(stu=>{
+      const monthLessons=lessons.filter(l=>l.sid===stu.id&&l.date>=ms&&l.date<me);
+      const happenedDates=new Set(monthLessons.filter(l=>
+        l.status==='completed'||(l.status==='scheduled'&&l.date<TODAY)||l.status==='cancelled_unjustified'||l.status==='no_show'
+      ).map(l=>l.date));
+      const happened=happenedDates.size;
+      const upcoming=new Set(monthLessons.filter(l=>l.status==='scheduled'&&l.date>=TODAY).map(l=>l.date)).size;
+      const price=stu.pricePerLesson||0;
+      const totalDue=happened*price;
+      const pay=payments.find(p=>p.studentId===stu.id&&p.month===month);
+      const paid=pay?.amount||0;
+      const balance=totalDue-paid;
+      return{stu,happened,upcoming,price,totalDue,paid,balance,payNote:pay?.note||''};
+    }).filter(r=>r.happened>0||r.upcoming>0||r.paid>0);
+  },[lessons,students,payments,month,TODAY]);
+
+  const totals=useMemo(()=>({
+    due:billing.reduce((s,r)=>s+r.totalDue,0),
+    paid:billing.reduce((s,r)=>s+r.paid,0),
+    outstanding:billing.reduce((s,r)=>s+(r.balance>0?r.balance:0),0),
+  }),[billing]);
+
+  // Events in this month (with price)
+  const monthEvents=useMemo(()=>{
+    const[ms,me]=monRange(month);
+    return events.filter(e=>e.date>=ms&&e.date<me&&e.price);
+  },[events,month]);
+
+  const eventTotals=useMemo(()=>({
+    total:monthEvents.reduce((s,e)=>s+(e.price||0),0),
+    paid:monthEvents.filter(e=>e.paidStatus==='paid').reduce((s,e)=>s+(e.price||0),0),
+  }),[monthEvents]);
+
+  const EVT_STATUS={
+    unpaid:   {label:'התקיים',     color:'info',    nextLabel:'שלח בקשת תשלום'},
+    requested:{label:'בקשה נשלחה', color:'warning', nextLabel:'✓ סמן שולם'},
+    paid:     {label:'שולם ✓',     color:'success', nextLabel:'בטל תשלום'},
+  };
+
+  async function advanceEventStatus(ev){
+    const next=ev.paidStatus==='paid'?'unpaid':ev.paidStatus==='requested'?'paid':'requested';
+    try{ await updEvent(ev.id,{paidStatus:next}); }catch(e){ alert('שגיאה: '+e.message); }
+  }
+
+  function openPayModal(row){
+    setPayModal(row);
+    setPayAmt(String(row.totalDue));
+    setPayNote(row.payNote||'');
+  }
+
+  async function handlePay(){
+    if(!payModal)return;
+    try{
+      await setPayment(payModal.stu.id,month,Number(payAmt)||0,payNote);
+      setPayModal(null);
+    }catch(e){ alert('שגיאה: '+e.message); }
+  }
+
+  return(
+    <div>
+      {/* Month selector */}
+      <div style={{...S.card,padding:'10px 14px'}}>
+        <div style={{...S.row,justifyContent:'space-between',alignItems:'center'}}>
+          <button style={{...S.btn('ghost'),padding:'6px 12px',fontSize:16}} onClick={()=>setMonth(prevMon(month))}>‹</button>
+          <span style={{fontSize:15,fontWeight:600}}>{fmtMon(month)}</span>
+          <button style={{...S.btn('ghost'),padding:'6px 12px',fontSize:16}} onClick={()=>setMonth(nextMon(month))}>›</button>
+        </div>
+      </div>
+
+      {/* ── Students ── */}
+      <div style={{fontSize:13,fontWeight:600,color:'var(--tx2)',margin:'10px 0 6px'}}>🎸 שיעורים</div>
+      {billing.length>0&&(
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:10}}>
+          {[['לגבייה',totals.due,'info'],['שולם',totals.paid,'success'],['חוב',totals.outstanding,'danger']].map(([l,v,c])=>(
+            <div key={l} style={{background:`var(--bg${c==='danger'?'D':c==='success'?'S':'I'})`,borderRadius:'var(--r2)',padding:'10px 12px',textAlign:'center'}}>
+              <div style={{fontSize:11,color:`var(--tx${c==='danger'?'D':c==='success'?'S':'I'})`,marginBottom:4}}>{l}</div>
+              <div style={{fontSize:18,fontWeight:700,color:`var(--tx${c==='danger'?'D':c==='success'?'S':'I'})`}}>₪{v}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {billing.length===0?(
+        <div style={{textAlign:'center',padding:'24px 0',color:'var(--tx2)',fontSize:14}}>אין שיעורים ב{fmtMon(month)}</div>
+      ):(
+        billing.map(row=>{
+          const{stu,happened,upcoming,price,totalDue,paid,balance}=row;
+          const isPaid=balance<=0&&totalDue>0;
+          const isPartial=paid>0&&balance>0;
+          const borderColor=isPaid?'var(--bd2)':isPartial?'#FAC775':happened>0?'#F7C1C1':'var(--bd3)';
+          return(
+            <div key={stu.id} style={{...S.card,borderRight:`4px solid ${borderColor}`}}>
+              <div style={{...S.row,justifyContent:'space-between',marginBottom:4}}>
+                <span style={{fontSize:14,fontWeight:500}}>{stu.name}</span>
+                {happened>0&&(isPaid?<span style={S.bdg('success')}>שולם ✓</span>:isPartial?<span style={S.bdg('warning')}>חלקי</span>:<span style={S.bdg('danger')}>לא שולם</span>)}
+              </div>
+              <div style={{fontSize:13,color:'var(--tx2)',marginBottom:4}}>
+                {happened>0?<span>{happened} שיעורים × ₪{price} = <strong>₪{totalDue}</strong></span>:<span style={{color:'var(--txI)'}}>אין שיעורים שהתקיימו עדיין</span>}
+                {paid>0&&<span style={{color:isPaid?'var(--txS)':'var(--txW)'}}> · שולם ₪{paid}{balance>0&&` · נותר ₪${balance}`}</span>}
+              </div>
+              {upcoming>0&&(
+                <div style={{fontSize:12,color:'var(--txI)',background:'var(--bgI)',borderRadius:6,padding:'4px 8px',display:'inline-block',marginBottom:6}}>
+                  + {upcoming} שיעורים קרובים החודש
+                </div>
+              )}
+              {happened>0&&(
+                <div style={{...S.row,marginTop:4}}>
+                  <button style={{...S.btn(isPaid?'default':'primary'),flex:1,padding:'7px',fontSize:12}} onClick={()=>openPayModal(row)}>
+                    {isPaid?'✏️ עדכן תשלום':'💰 סמן תשלום'}
+                  </button>
+                  <button style={{...S.btn('success'),flex:1,padding:'7px',fontSize:12}} onClick={()=>openMsgModal(row)}>
+                    📱 שלח הודעת חיוב
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+
+      {/* ── Events ── */}
+      {monthEvents.length>0&&(
+        <>
+          <div style={{fontSize:13,fontWeight:600,color:'var(--tx2)',margin:'16px 0 6px'}}>🎤 אירועים</div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10}}>
+            {[['סה"כ',eventTotals.total,'info'],['שולם',eventTotals.paid,'success']].map(([l,v,c])=>(
+              <div key={l} style={{background:`var(--bg${c==='success'?'S':'I'})`,borderRadius:'var(--r2)',padding:'10px 12px',textAlign:'center'}}>
+                <div style={{fontSize:11,color:`var(--tx${c==='success'?'S':'I'})`,marginBottom:4}}>{l}</div>
+                <div style={{fontSize:18,fontWeight:700,color:`var(--tx${c==='success'?'S':'I'})`}}>₪{v}</div>
+              </div>
+            ))}
+          </div>
+          {monthEvents.map(ev=>{
+            const et=ETYPES[ev.type]||ETYPES.performance;
+            const st=EVT_STATUS[ev.paidStatus||'unpaid']||EVT_STATUS.unpaid;
+            const btnVariant=ev.paidStatus==='paid'?'default':ev.paidStatus==='requested'?'success':'primary';
+            return(
+              <div key={ev.id} style={{...S.card,borderRight:`4px solid ${et.border}`}}>
+                <div style={{...S.row,justifyContent:'space-between',marginBottom:4}}>
+                  <span style={{fontSize:14,fontWeight:500}}>{et.icon} {ev.title}</span>
+                  <span style={S.bdg(st.color)}>{st.label}</span>
+                </div>
+                <div style={{fontSize:13,color:'var(--tx2)',marginBottom:8}}>
+                  {dd(ev.date)}{ev.location&&<span> · 📍 {ev.location}</span>}
+                  <span style={{fontWeight:600,color:'var(--tx1)'}}> · ₪{ev.price}</span>
+                </div>
+                <button style={{...S.btn(btnVariant),width:'100%',padding:'7px',fontSize:12}} onClick={()=>advanceEventStatus(ev)}>
+                  {st.nextLabel}
+                </button>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {payModal&&(
+        <Modal onClose={()=>setPayModal(null)}>
+          <h3 style={{margin:'0 0 4px',fontSize:16,fontWeight:600,direction:'rtl'}}>תשלום — {payModal.stu.name}</h3>
+          <p style={{fontSize:13,color:'var(--tx2)',margin:'0 0 16px',direction:'rtl'}}>{fmtMon(month)} · {payModal.happened} שיעורים · סה"כ לגבייה ₪{payModal.totalDue}</p>
+          <div style={{marginBottom:12}}><div style={S.lbl}>סכום שהתקבל (₪)</div>
+            <input type="number" style={S.inp} value={payAmt} onChange={e=>setPayAmt(e.target.value)} autoFocus/>
+          </div>
+          <div style={{marginBottom:16}}><div style={S.lbl}>הערה (אופציונלי)</div>
+            <input style={S.inp} value={payNote} onChange={e=>setPayNote(e.target.value)} placeholder="מזומן, העברה..."/>
+          </div>
+          <button style={{...S.btn('primary'),width:'100%',marginBottom:8}} onClick={handlePay}>שמור תשלום</button>
+          {payModal.paid>0&&<button style={{...S.btn('danger'),width:'100%',marginBottom:8}} onClick={async()=>{await setPayment(payModal.stu.id,month,0,'');setPayModal(null);}}>🗑 מחק תשלום</button>}
+          <button style={{...S.btn('ghost'),width:'100%'}} onClick={()=>setPayModal(null)}>ביטול</button>
+        </Modal>
+      )}
+
+      {msgModal&&(
+        <Modal onClose={()=>setMsgModal(null)}>
+          <h3 style={{margin:'0 0 4px',fontSize:16,fontWeight:600,direction:'rtl'}}>הודעת חיוב — {msgModal.stu.name}</h3>
+          <p style={{fontSize:13,color:'var(--tx2)',margin:'0 0 12px',direction:'rtl'}}>
+            תישלח ל{msgModal.stu.parent?'הורה':'תלמיד'}: {msgModal.phone?`📱 ${msgModal.phone}`:<span style={{color:'var(--txD)'}}>אין מספר טלפון — הוסף בכרטיס התלמיד</span>}
+          </p>
+          <div style={{marginBottom:10}}>
+            <div style={S.lbl}>טקסט ההודעה (ניתן לערוך)</div>
+            <textarea style={{...S.inp,minHeight:140,resize:'vertical',fontFamily:'inherit',lineHeight:1.5,direction:'rtl'}} value={msgModal.text} onChange={e=>setMsgModal({...msgModal,text:e.target.value})}/>
+          </div>
+          <p style={{fontSize:11,color:'var(--tx2)',margin:'0 0 14px',direction:'rtl'}}>בלחיצה על הכפתור ייפתח וואטסאפ עם ההודעה מוכנה — השליחה בפועל היא לחיצה שלך בתוך וואטסאפ.</p>
+          <button style={{...S.btn('success'),width:'100%',marginBottom:8}} onClick={sendBillMsg}>📤 פתח בוואטסאפ</button>
+          <button style={{...S.btn('ghost'),width:'100%'}} onClick={()=>setMsgModal(null)}>ביטול</button>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ── Requests Tab ──────────────────────────────────────────────────────────────
+function TeacherRequestsTab({ctx}){
+  const{lessons,students,updLesson,pendingStudents,approveStudent,rejectStudent,approvedInfo,clearApprovedInfo,pubNext,NEXT_WK,gcalUrl}=ctx;
+  const [appId,setAppId]=useState(null);
+  const [assignType,setAssignType]=useState('flexible');
+  const [assignDi,setAssignDi]=useState(1);
+  const [assignT,setAssignT]=useState('09:00');
+  const [gcalMsg,setGcalMsg]=useState('');
+  function showGCal(){ if(gcalUrl){setGcalMsg('📅 עודכן ביומן Google');setTimeout(()=>setGcalMsg(''),3000);} }
+
+  const pendCancel=lessons.filter(l=>l.status==='pending_cancel').sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  const unregFlex=pubNext?students.filter(s=>s.type==='flexible'&&!lessons.some(l=>l.sid===s.id&&inWk(l.date,NEXT_WK)&&['scheduled','pending_cancel'].includes(l.status))):[];
+  const pendStu=pendingStudents||[];
+
+  if(!pendCancel.length&&!pendStu.length&&!approvedInfo&&!unregFlex.length)
+    return<div style={{textAlign:'center',padding:'40px 0',color:'var(--tx2)',fontSize:14}}>אין בקשות ממתינות</div>;
+
+  return(
+    <div>
+      {approvedInfo&&(
+        <Modal onClose={clearApprovedInfo}>
+          <div style={{textAlign:'center',padding:'8px 0',direction:'rtl'}}>
+            <div style={{fontSize:40,marginBottom:12}}>✅</div>
+            <div style={{fontSize:17,fontWeight:600,marginBottom:6}}>{approvedInfo.name} אושר!</div>
+            <div style={{fontSize:14,color:'var(--tx2)',marginBottom:16}}>קוד הכניסה (מספר הטלפון):</div>
+            <div style={{background:'var(--bg2)',borderRadius:12,padding:'16px',marginBottom:20}}>
+              <div style={{fontSize:11,color:'var(--tx2)',marginBottom:4}}>קוד כניסה</div>
+              <div style={{fontSize:34,fontWeight:700,letterSpacing:6}}>{approvedInfo.code}</div>
+            </div>
+            <button style={{...S.btn('primary'),width:'100%'}} onClick={clearApprovedInfo}>סגור</button>
+          </div>
+        </Modal>
+      )}
+
+      {pendStu.length>0&&(
+        <>
+          <div style={{fontSize:13,fontWeight:500,color:'var(--tx2)',margin:'6px 0 8px'}}>תלמידים חדשים ממתינים ({pendStu.length})</div>
+          {pendStu.map(ps=>(
+            <div key={ps.id} style={S.card}>
+              <div style={{...S.row,justifyContent:'space-between',marginBottom:4}}>
+                <span style={{fontSize:15,fontWeight:500}}>{ps.name}</span>
+                <span style={S.bdg('info')}>הרשמה חדשה</span>
+              </div>
+              <div style={{fontSize:13,color:'var(--tx2)',marginBottom:2}}>📱 {ps.phone}{ps.parent?` · ${ps.parent}`:''}</div>
+              <div style={{fontSize:12,color:'var(--tx2)',marginBottom:10}}>מבקש: {ps.di!=null?`יום ${DAY[ps.di]} ${ps.t}`:'ללא העדפה'}</div>
+              {appId===ps.id?(
+                <div style={{background:'var(--bg2)',borderRadius:8,padding:'12px 10px'}}>
+                  <div style={{fontSize:12,color:'var(--tx2)',marginBottom:8}}>סוג תלמיד:</div>
+                  <div style={{display:'flex',gap:6,marginBottom:10}}>
+                    {[['flexible','נייד'],['fixed','קבוע']].map(([v,l])=>(
+                      <button key={v} style={{...S.btn(assignType===v?'primary':'default'),flex:1,padding:'6px 8px',fontSize:13}} onClick={()=>setAssignType(v)}>{l}</button>
+                    ))}
+                  </div>
+                  {assignType==='fixed'&&(
+                    <div style={{display:'flex',gap:8,marginBottom:10}}>
+                      <div style={{flex:1}}><div style={S.lbl}>יום</div><select style={S.inp} value={assignDi} onChange={e=>setAssignDi(Number(e.target.value))}>{[0,1,2,3,4].map(d=><option key={d} value={d}>יום {DAY[d]}</option>)}</select></div>
+                      <div style={{flex:1}}><div style={S.lbl}>שעה</div><input type="time" step="900" style={S.inp} value={assignT} onChange={e=>setAssignT(e.target.value)}/></div>
+                    </div>
+                  )}
+                  <div style={{display:'flex',gap:8}}>
+                    <button style={S.btn('ghost')} onClick={()=>setAppId(null)}>ביטול</button>
+                    <button style={{...S.btn('success'),flex:1}} onClick={()=>{approveStudent(ps.id,ps,assignType,assignType==='fixed'?assignDi:null,assignType==='fixed'?assignT:null);setAppId(null);}}>✓ אשר</button>
+                  </div>
+                </div>
+              ):(
+                <div style={{display:'flex',gap:8}}>
+                  <button style={{...S.btn('danger'),flex:1}} onClick={()=>rejectStudent(ps.id)}>דחה</button>
+                  <button style={{...S.btn('success'),flex:1}} onClick={()=>{setAppId(ps.id);setAssignType(ps.di!=null?'fixed':'flexible');if(ps.di!=null)setAssignDi(ps.di);if(ps.t)setAssignT(ps.t);}}>אשר</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </>
+      )}
+
+      {unregFlex.length>0&&(
+        <div style={{...S.card,background:'#fff7ed',border:'1.5px solid #fed7aa',marginBottom:10}}>
+          <div style={{fontSize:13,fontWeight:600,color:'#9a3412',marginBottom:6}}>📋 ניידים שטרם נרשמו לשבוע הבא ({unregFlex.length})</div>
+          {unregFlex.map(s=>(
+            <div key={s.id} style={{...S.row,justifyContent:'space-between',padding:'4px 0',borderBottom:'0.5px solid #fed7aa'}}>
+              <span style={{fontSize:13,color:'#7c2d12',fontWeight:500}}>{s.name}</span>
+              {s.phone&&<span style={{fontSize:12,color:'#9a3412'}}>📱 {s.phone}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {gcalMsg&&<div style={{...S.card,background:'#f0fdf4',border:'1px solid #86efac',fontSize:13,color:'#166534',textAlign:'center',padding:'8px 12px',marginBottom:6}}>{gcalMsg}</div>}
+
+      {pendCancel.length>0&&(
+        <>
+          <div style={{fontSize:13,fontWeight:500,color:'var(--tx2)',margin:'14px 0 8px'}}>בקשות ביטול</div>
+          {pendCancel.map(l=>{
+            const stu=students.find(s=>s.id===l.sid);
+            return(
+              <div key={l.id} style={S.card}>
+                <div style={{...S.row,marginBottom:4}}>
+                  <span style={{fontSize:15,fontWeight:500}}>{stu?.name}</span>
+                  <span style={{fontSize:13,color:'var(--tx2)'}}>{dd(l.date)} · {l.time}</span>
+                  <HolBadge date={l.date}/>
+                </div>
+                <p style={{fontSize:13,color:'var(--tx2)',margin:'4px 0 12px'}}>סיבה: {l.reason||'—'}</p>
+                <div style={{...S.row,gap:8}}>
+                  <button style={{...S.btn('success'),flex:1}} onClick={()=>{updLesson(l.id,{status:'cancelled_justified'});showGCal();}}>מוצדק</button>
+                  <button style={{...S.btn('danger'),flex:1}} onClick={()=>{updLesson(l.id,{status:'cancelled_unjustified'});showGCal();}}>לא מוצדק</button>
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── GCal Tab ──────────────────────────────────────────────────────────────────
+function GCalTab({ctx}){
+  const{gcalUrl,setGcalUrl,lessons,students,syncLessonToGCal,syncEventToGCal,events,cleanDuplicateLessons}=ctx;
+  const [url,setUrl]=useState(gcalUrl);
+  const [copied,setCopied]=useState(false);
+  const SCRIPT=`// ═══════════════════════════════════════════════════
+// Google Apps Script — הדבק בסקריפט חדש ופרסם כ-Web App
+// Execute as: Me  |  Who has access: Anyone
+// ═══════════════════════════════════════════════════
+function doPost(e) {
+  try {
+    var d = JSON.parse(e.postData.contents);
+    var cal = CalendarApp.getDefaultCalendar();
+    var tag = '[BIZ_' + d.bizId + ']';
+    // חיפוש ממוקד רק סביב תאריך האירוע (מהיר יותר)
+    var searchStart = d.start ? new Date(d.start) : new Date('2020-01-01');
+    searchStart.setDate(searchStart.getDate() - 1);
+    var searchEnd = d.start ? new Date(d.start) : new Date('2030-01-01');
+    searchEnd.setDate(searchEnd.getDate() + 2);
+    var existing = cal.getEvents(searchStart, searchEnd).filter(function(ev) {
+      return ev.getDescription().includes(tag) || ev.getTitle().includes(tag);
+    });
+    if (d.action === 'delete') {
+      existing.forEach(function(ev) { ev.deleteEvent(); });
+    } else if (d.action === 'upsert' || d.action === 'create') {
+      var desc = (d.description || '') + ' [BIZ_' + d.bizId + ']';
+      if (existing.length > 0) {
+        // עדכן קיים (ומחק כפילויות)
+        existing[0].setTitle(d.title);
+        existing[0].setTime(new Date(d.start), new Date(d.end));
+        existing[0].setDescription(desc);
+        if (d.location) existing[0].setLocation(d.location);
+        if (d.color)    existing[0].setColor(d.color);
+        for (var i = 1; i < existing.length; i++) existing[i].deleteEvent();
+      } else {
+        // צור חדש
+        var newEv = cal.createEvent(d.title, new Date(d.start), new Date(d.end),
+          { description: desc, location: d.location || '' });
+        if (d.color) newEv.setColor(d.color);
+      }
+    } else if (d.action === 'update') {
+      existing.forEach(function(ev) {
+        ev.setTitle(d.title);
+        ev.setTime(new Date(d.start), new Date(d.end));
+        ev.setDescription((d.description || '') + ' [BIZ_' + d.bizId + ']');
+        if (d.location) ev.setLocation(d.location);
+        if (d.color)    ev.setColor(d.color);
+      });
+    }
+    return ContentService.createTextOutput(JSON.stringify({ok:true}))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch(err) {
+    return ContentService.createTextOutput(JSON.stringify({error:err.toString()}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
+  const [cleanMsg,setCleanMsg]=useState('');
+  const [dupMsg,setDupMsg]=useState('');
+  async function handleCleanDups(){
+    setDupMsg('מנקה...');
+    try{
+      const count=await cleanDuplicateLessons();
+      setDupMsg(count>0?`✓ נמחקו ${count} שיעורים כפולים`:'✓ לא נמצאו כפילויות');
+    }catch(e){setDupMsg('שגיאה: '+e.message);}
+    setTimeout(()=>setDupMsg(''),6000);
+  }
+  async function cleanupGCal(){
+    if(!gcalUrl)return;
+    setCleanMsg('מנקה...');
+    const sixMonths=new Date();sixMonths.setMonth(sixMonths.getMonth()+6);
+    const cutoff=fd(sixMonths);
+    // מחק שיעורים שמעבר ל-6 חודשים
+    const farLessons=lessons.filter(l=>l.date>cutoff&&l.sid);
+    for(const l of farLessons){ await syncLessonToGCal('delete',l); }
+    // upsert שיעורים בטווח (מנקה כפילויות)
+    const nearLessons=lessons.filter(l=>l.date<=cutoff&&l.date>=fd(new Date())&&['scheduled','pending_cancel'].includes(l.status)&&l.sid);
+    for(const l of nearLessons){ await syncLessonToGCal('upsert',l); }
+    setCleanMsg(`✓ נוקו ${farLessons.length} שיעורים רחוקים, עודכנו ${nearLessons.length} קרובים`);
+    setTimeout(()=>setCleanMsg(''),5000);
+  }
+  return(
+    <div>
+      <div style={S.card}>
+        <h3 style={{margin:'0 0 8px',fontSize:15,fontWeight:600}}>📅 סנכרון Google Calendar</h3>
+        <p style={{fontSize:13,color:'var(--tx2)',margin:'0 0 16px',lineHeight:1.6}}>כל אירוע (הגברה / הפקה / הופעה) יתווסף ליומן Google שלך אוטומטית.</p>
+        <div style={{marginBottom:12}}>
+          <div style={S.lbl}>URL של Apps Script</div>
+          <input style={S.inp} value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/.../exec"/>
+        </div>
+        <button style={{...S.btn('primary'),width:'100%'}} onClick={()=>setGcalUrl(url)}>שמור</button>
+        {gcalUrl&&<div style={{fontSize:12,color:'var(--txS)',marginTop:8,textAlign:'center'}}>✓ URL שמור — הסנכרון פעיל</div>}
+      </div>
+      <div style={{...S.card,border:'1.5px solid #fca5a5',background:'#fff5f5'}}>
+        <div style={{fontSize:14,fontWeight:600,marginBottom:6,color:'#dc2626'}}>🗑 ניקוי שיעורים כפולים</div>
+        <p style={{fontSize:13,color:'var(--tx2)',margin:'0 0 12px',lineHeight:1.6}}>בגלל באג שתוקן, כל לחיצה על "פרסם" יצרה עותקים מיותרים. לחץ פעם אחת לניקוי — לא ניתן לבטל.</p>
+        <button style={{...S.btn('danger'),width:'100%'}} onClick={handleCleanDups}>🗑 נקה כפילויות</button>
+        {dupMsg&&<div style={{fontSize:12,marginTop:8,textAlign:'center',color:dupMsg.startsWith('✓')?'var(--txS)':'var(--txD)'}}>{dupMsg}</div>}
+      </div>
+      {gcalUrl&&(
+        <div style={S.card}>
+          <div style={{fontSize:14,fontWeight:600,marginBottom:6}}>🧹 ניקוי יומן</div>
+          <p style={{fontSize:13,color:'var(--tx2)',margin:'0 0 12px',lineHeight:1.6}}>מוחק שיעורים שמעבר ל-6 חודשים ומנקה כפילויות בטווח הקרוב.</p>
+          <button style={{...S.btn('warning'),width:'100%'}} onClick={cleanupGCal}>ניקוי יומן</button>
+          {cleanMsg&&<div style={{fontSize:12,color:'var(--txS)',marginTop:8,textAlign:'center'}}>{cleanMsg}</div>}
+        </div>
+      )}
+      <div style={S.card}>
+        <div style={{...S.row,justifyContent:'space-between',marginBottom:10}}>
+          <span style={{fontSize:14,fontWeight:600}}>קוד לסקריפט</span>
+          <button style={{...S.btn('info'),padding:'5px 12px',fontSize:12}} onClick={()=>{navigator.clipboard?.writeText(SCRIPT);setCopied(true);setTimeout(()=>setCopied(false),2000);}}>
+            {copied?'✓ הועתק':'📋 העתק'}
+          </button>
+        </div>
+        <div style={{fontSize:11,color:'var(--tx2)',marginBottom:8,lineHeight:1.6}}>
+          1. פתח <strong>script.google.com</strong> · 2. צור פרויקט חדש · 3. הדבק את הקוד · 4. פרסם כ-Web App (Execute as: Me, Anyone can access) · 5. העתק את ה-URL לשדה למעלה
+        </div>
+        <pre style={{background:'var(--bg2)',borderRadius:8,padding:'10px 12px',fontSize:10,overflowX:'auto',margin:0,direction:'ltr',textAlign:'left',whiteSpace:'pre-wrap'}}>{SCRIPT}</pre>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// STUDENT VIEW
+// ══════════════════════════════════════════════════════════════
+function StudentView({ctx}){
+  const [tab,setTab]=useState('mine');
+  const{me,logout}=ctx;
+  if(!me) return <LoadingView/>;
+  return(
+    <div style={S.page}>
+      <div style={S.hdr}>
+        <h1 style={S.ttl}>{me.name}</h1>
+        <button style={S.btn('ghost')} onClick={logout}>יציאה</button>
+      </div>
+      <div style={S.tabs}>
+        <button style={S.tab(tab==='mine')} onClick={()=>setTab('mine')}>השיעורים שלי</button>
+        <button style={S.tab(tab==='board')} onClick={()=>setTab('board')}>לוח</button>
+      </div>
+      <div style={S.body}>
+        {tab==='mine'  && <StudentMineTab  ctx={ctx}/>}
+        {tab==='board' && <StudentBoardTab ctx={ctx}/>}
+      </div>
+    </div>
+  );
+}
+
+function StudentMineTab({ctx}){
+  const{me,lessons,students,baseSlots,TODAY,THIS_WK,NEXT_WK,pubNext,updLesson,addLesson}=ctx;
+  const[cancelModal,setCancelModal]=useState(null);
+  const[moveModal,setMoveModal]=useState(null);
+  const[moveSuccess,setMoveSuccess]=useState('');
+  const[reason,setReason]=useState('');
+
+  const myLessons=useMemo(()=>lessons.filter(l=>l.sid===me.id).sort((a,b)=>(a.date||'').localeCompare(b.date||'')),[lessons,me.id]);
+  const upcoming=myLessons.filter(l=>l.status==='scheduled'&&l.date>=TODAY);
+  const history=myLessons.filter(l=>!['scheduled','pending_cancel'].includes(l.status)).reverse().slice(0,10);
+
+  const availSlots=useMemo(()=>{
+    if(!pubNext)return[];
+    const open=baseSlots.filter(s=>validT(s.t)).filter(s=>s.sid===null||pubNext.cancelledIds?.includes(s.sid)||!students.some(st=>st.id===s.sid)).filter(s=>!pubNext.blockedSlots?.some(b=>b.di===s.di&&b.t===s.t));
+    const extra=(pubNext.extraSlots||[]).filter(s=>!pubNext.blockedSlots?.some(b=>b.di===s.di&&b.t===s.t)).map(s=>({di:s.di,t:s.t,sid:null}));
+    return[...open,...extra].map(slot=>{
+      let d=pd(NEXT_WK);let _g=0;while(d.getDay()!==slot.di&&_g++<8)d.setDate(d.getDate()+1);
+      const date=fd(d);
+      const taken=lessons.some(l=>l.date===date&&l.time===slot.t&&['scheduled','pending_cancel'].includes(l.status)&&students.some(s=>s.id===l.sid));
+      return taken?null:{date,time:slot.t,di:slot.di};
+    }).filter(Boolean).sort((a,b)=>a.di!==b.di?a.di-b.di:(a.time||'').localeCompare(b.time||''));
+  },[pubNext,lessons,NEXT_WK,baseSlots,students]);
+
+  function getMoveSlots(lesson){
+    const th=[],nx=[];
+    baseSlots.filter(s=>validT(s.t)&&(s.sid===null||!students.some(st=>st.id===s.sid))).forEach(s=>{
+      let d=pd(THIS_WK);let _g=0;while(d.getDay()!==s.di&&_g++<8)d.setDate(d.getDate()+1);
+      const date=fd(d);
+      if(date<TODAY)return;if(hUntil(date,s.t)<2)return;
+      if(date===lesson.date&&s.t===lesson.time)return;
+      const taken=lessons.some(l=>l.date===date&&l.time===s.t&&['scheduled','pending_cancel'].includes(l.status)&&students.some(st=>st.id===l.sid));
+      if(!taken)th.push({date,time:s.t,di:s.di});
+    });
+    if(pubNext){
+      const nw=[...baseSlots.filter(s=>validT(s.t)&&(s.sid===null||pubNext.cancelledIds?.includes(s.sid))).filter(s=>!pubNext.blockedSlots?.some(b=>b.di===s.di&&b.t===s.t)),
+                ...(pubNext.extraSlots||[]).filter(s=>validT(s.t)).filter(s=>!pubNext.blockedSlots?.some(b=>b.di===s.di&&b.t===s.t)).map(s=>({di:s.di,t:s.t,sid:null}))];
+      nw.forEach(s=>{
+        let d=pd(NEXT_WK);let _g=0;while(d.getDay()!==s.di&&_g++<8)d.setDate(d.getDate()+1);
+        const date=fd(d);
+        if(date===lesson.date&&s.t===lesson.time)return;
+        const taken=lessons.some(l=>l.date===date&&l.time===s.t&&['scheduled','pending_cancel'].includes(l.status)&&students.some(st=>st.id===l.sid));
+        if(!taken)nx.push({date,time:s.t,di:s.di});
+      });
+    }
+    return{th,nx};
+  }
+
+  const myNextLesson=lessons.find(l=>l.sid===me.id&&l.status==='scheduled'&&l.date>=TODAY);
+
+  return(
+    <div>
+      {/* Next lesson highlight */}
+      {myNextLesson&&(
+        <div style={{...S.card,background:'var(--bgI)',border:'1.5px solid var(--bd2)',marginBottom:12}}>
+          <div style={{fontSize:12,color:'var(--txI)',marginBottom:4}}>השיעור הקרוב שלך</div>
+          <div style={{fontSize:17,fontWeight:600,color:'var(--blueD)'}}>יום {DAY[pd(myNextLesson.date).getDay()]} · {dd(myNextLesson.date)}</div>
+          <div style={{fontSize:15,color:'var(--blueD)'}}>{myNextLesson.time}</div>
+        </div>
+      )}
+
+      {/* Book next week */}
+      {pubNext&&me.type==='flexible'&&(
+        <div style={S.card}>
+          <div style={{fontSize:13,fontWeight:500,marginBottom:8}}>📅 שבוע {dd(NEXT_WK)} — שעות פנויות</div>
+          {pubNext.note&&<div style={{fontSize:12,color:'var(--tx2)',marginBottom:8,background:'var(--bg2)',borderRadius:6,padding:'6px 10px'}}>{pubNext.note}</div>}
+          {availSlots.length===0?<div style={{fontSize:13,color:'var(--tx2)'}}>אין שעות פנויות</div>:(
+            availSlots.map(sl=>(
+              <button key={`${sl.date}_${sl.time}`} style={{...S.btn('default'),marginBottom:6,width:'100%',textAlign:'right'}} onClick={()=>{addLesson({sid:me.id,date:sl.date,time:sl.time,status:'scheduled',reason:'',durationMins:45,weekStart:wkS(sl.date)});}}>
+                יום {DAY[sl.di]} {dd(sl.date)} · {sl.time}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+
+      {moveSuccess&&<div style={{...S.card,background:'var(--bgS)',border:'1.5px solid #C0DD97',fontSize:13,color:'var(--txS)',textAlign:'center'}}>{moveSuccess}</div>}
+
+      {/* Upcoming lessons */}
+      {upcoming.length>0&&(
+        <div>
+          <div style={{fontSize:13,fontWeight:500,color:'var(--tx2)',margin:'10px 0 6px'}}>שיעורים מתוכננים</div>
+          {upcoming.map(l=>{
+            const canCancel=hUntil(l.date,l.time)>24;
+            const {th,nx}=getMoveSlots(l);
+            const canMove=th.length>0||nx.length>0;
+            return(
+              <div key={l.id} style={{...S.card,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div>
+                  <div style={{fontSize:14,fontWeight:500}}>יום {DAY[pd(l.date).getDay()]} · {dd(l.date)}</div>
+                  <div style={{fontSize:13,color:'var(--tx2)'}}>{l.time}</div>
+                  <HolBadge date={l.date}/>
+                </div>
+                <div style={S.row}>
+                  {canMove&&<button style={{...S.btn('info'),padding:'5px 10px',fontSize:11}} onClick={()=>setMoveModal({lesson:l,th,nx})}>העבר</button>}
+                  {canCancel&&<button style={{...S.btn('danger'),padding:'5px 10px',fontSize:11}} onClick={()=>{setCancelModal(l);setReason('');}}>בטל</button>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* History */}
+      {history.length>0&&(
+        <div>
+          <div style={{fontSize:13,fontWeight:500,color:'var(--tx2)',margin:'10px 0 6px'}}>היסטוריה</div>
+          {history.map(l=>(
+            <div key={l.id} style={{...S.card,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div><div style={{fontSize:13}}>{dd(l.date)} · {l.time}</div>{l.reason&&<div style={{fontSize:12,color:'var(--tx2)'}}>{l.reason}</div>}</div>
+              <SBadge status={l.status}/>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {cancelModal&&(
+        <Modal onClose={()=>setCancelModal(null)}>
+          <h3 style={{margin:'0 0 6px',fontSize:16,fontWeight:500,direction:'rtl'}}>בקשת ביטול</h3>
+          <p style={{fontSize:13,color:'var(--tx2)',margin:'0 0 14px',direction:'rtl'}}>יום {DAY[pd(cancelModal.date).getDay()]} · {dd(cancelModal.date)} · {cancelModal.time}</p>
+          <div style={{marginBottom:16}}><div style={S.lbl}>סיבה (חובה)</div>
+            <textarea style={{...S.inp,minHeight:70,resize:'vertical'}} value={reason} onChange={e=>setReason(e.target.value)} placeholder="תאר את הסיבה לביטול..." autoFocus/></div>
+          <button style={{...S.btn('warning'),width:'100%',marginBottom:8,opacity:reason.trim()?1:.5}} disabled={!reason.trim()} onClick={()=>{updLesson(cancelModal.id,{status:'pending_cancel',reason:reason.trim()});setCancelModal(null);}}>שלח בקשת ביטול</button>
+          <button style={{...S.btn('ghost'),width:'100%'}} onClick={()=>setCancelModal(null)}>ביטול</button>
+        </Modal>
+      )}
+
+      {moveModal&&(
+        <Modal onClose={()=>setMoveModal(null)}>
+          <h3 style={{margin:'0 0 6px',fontSize:16,fontWeight:500,direction:'rtl'}}>העברת שיעור</h3>
+          <div style={{background:'var(--bg2)',borderRadius:8,padding:'8px 12px',marginBottom:14,direction:'rtl'}}>
+            <div style={{fontSize:11,color:'var(--tx2)',marginBottom:2}}>שיעור נוכחי</div>
+            <div style={{fontSize:14,fontWeight:500}}>יום {DAY[pd(moveModal.lesson.date).getDay()]} {dd(moveModal.lesson.date)} · {moveModal.lesson.time}</div>
+          </div>
+          {[['השבוע',moveModal.th],['שבוע הבא',moveModal.nx]].map(([lbl,slots])=>slots.length>0&&(
+            <div key={lbl} style={{marginBottom:10}}>
+              <div style={{fontSize:11,fontWeight:600,color:'var(--tx2)',marginBottom:6,direction:'rtl'}}>{lbl}</div>
+              {slots.map(sl=>(
+                <button key={`${sl.date}_${sl.time}`} style={{...S.btn('default'),marginBottom:5,width:'100%',textAlign:'right'}} onClick={()=>{updLesson(moveModal.lesson.id,{status:'moved'});addLesson({sid:me.id,date:sl.date,time:sl.time,status:'scheduled',reason:'',durationMins:45,weekStart:wkS(sl.date)});setMoveModal(null);setMoveSuccess('✅ השיעור הועבר בהצלחה');setTimeout(()=>setMoveSuccess(''),3000);}}>
+                  יום {DAY[sl.di]} {dd(sl.date)} · {sl.time}
+                </button>
+              ))}
+            </div>
+          ))}
+          <button style={{...S.btn('ghost'),width:'100%',marginTop:4}} onClick={()=>setMoveModal(null)}>ביטול</button>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function StudentBoardTab({ctx}){
+  const{students,lessons,baseSlots,TODAY,THIS_WK,NEXT_WK,pubNext,me}=ctx;
+  const [weekView,setWeekView]=useState('this');
+
+  const days=useMemo(()=>{
+    const ws=weekView==='this'?THIS_WK:NEXT_WK;
+    return[0,1,2,3,4].map(di=>{let d=pd(ws);let _g=0;while(d.getDay()!==di&&_g++<8)d.setDate(d.getDate()+1);return{date:fd(d),di};});
+  },[weekView,THIS_WK,NEXT_WK]);
+
+  const items=useMemo(()=>{
+    const ws=weekView==='this'?THIS_WK:NEXT_WK;
+    const slots=weekView==='this'?baseSlots:(pubNext?[
+      ...baseSlots.filter(s=>!pubNext.cancelledIds?.includes(s.sid)&&!pubNext.blockedSlots?.some(b=>b.di===s.di&&b.t===s.t)),
+      ...(pubNext.extraSlots||[]).map(s=>({di:s.di,t:s.t,sid:null})),
+    ]:baseSlots);
+    const res=[];
+    slots.filter(s=>validT(s.t)).forEach(s=>{
+      let d=pd(ws);let _g=0;while(d.getDay()!==s.di&&_g++<8)d.setDate(d.getDate()+1);
+      const date=fd(d);
+      const lesson=lessons.find(l=>l.date===date&&l.time===s.t&&['scheduled','pending_cancel'].includes(l.status));
+      const bookedStu=lesson?students.find(st=>st.id===lesson.sid):null;
+      const fixedStu=s.sid?students.find(st=>st.id===s.sid):null;
+      const occupied=bookedStu||fixedStu;
+      const isMe=bookedStu?.id===me.id||fixedStu?.id===me.id;
+      res.push({id:`${date}_${s.t}`,date,time:s.t,di:s.di,occupied:!!occupied,isMe,durationMins:45});
+    });
+    return res;
+  },[weekView,THIS_WK,NEXT_WK,baseSlots,lessons,students,pubNext,me]);
+
+  function renderItem(item,top,ht){
+    const bg=item.isMe?'#dbeafe':item.occupied?'#f1f5f9':'#dcfce7';
+    const fg=item.isMe?'#1e40af':item.occupied?'#94a3b8':'#166534';
+    const bd=item.isMe?'#93c5fd':item.occupied?'#cbd5e1':'#86efac';
+    const lbl=item.isMe?'✓ שלי':item.occupied?'תפוס':'פנוי';
+    return(
+      <div key={item.id} style={{position:'absolute',top,left:2,right:2,height:ht,background:bg,border:`1px solid ${bd}`,borderRadius:5,padding:'3px 5px',overflow:'hidden'}}>
+        <div style={{fontSize:10,fontWeight:700,color:fg}}>{lbl}</div>
+        <div style={{fontSize:9,color:fg}}>{item.time}</div>
+      </div>
+    );
+  }
+
+  return(
+    <div>
+      <div style={{...S.row,gap:0,marginBottom:10,background:'var(--bg2)',borderRadius:8,padding:3}}>
+        {[['this',`השבוע · ${dd(THIS_WK)}`],['next',`שבוע הבא · ${dd(NEXT_WK)}`]].map(([k,l])=>{
+          const dis=k==='next'&&!pubNext;
+          return(<button key={k} style={{flex:1,padding:'6px 0',fontSize:12,fontWeight:500,borderRadius:6,border:'none',cursor:dis?'not-allowed':'pointer',background:weekView===k?'#fff':'transparent',color:weekView===k?'var(--tx1)':'var(--tx2)',opacity:dis?.45:1,boxShadow:weekView===k?'0 1px 3px rgba(0,0,0,.08)':'none'}} onClick={()=>{if(!dis)setWeekView(k);}}>{l}{dis?' (לא פורסם)':''}</button>);
+        })}
+      </div>
+      {pubNext?.note&&<div style={{fontSize:12,color:'var(--tx2)',marginBottom:8,background:'var(--bgW)',borderRadius:6,padding:'6px 10px'}}>{pubNext.note}</div>}
+      <WeekCal days={days} items={items} renderItem={renderItem}/>
+      <div style={{...S.row,gap:8,flexWrap:'wrap',marginTop:4}}>
+        {[['#dbeafe','#1e40af','השיעור שלי'],['#dcfce7','#166534','פנוי'],['#f1f5f9','#94a3b8','תפוס']].map(([bg,fg,l])=>(
+          <div key={l} style={{...S.row,gap:3}}><div style={{width:9,height:9,borderRadius:2,background:bg,border:`1px solid ${fg}`,flexShrink:0}}/><span style={{fontSize:10,color:'var(--tx2)'}}>{l}</span></div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── APP ────────────────────────────────────────────────────────────────────
+function App(){
+  // ── Simple code-based auth (persisted in localStorage) ──────────────────
+  const [user,setUser]=React.useState(()=>{
+    try{ const s=localStorage.getItem('biz_user'); return s?JSON.parse(s):null; }catch(e){return null;}
+  });
+  const [loginErr,setLoginErr]=React.useState('');
+  const [approvedInfo,setApprovedInfo]=React.useState(null);
+  const [showReg,setShowReg]=React.useState(false);
+
+  function saveUser(u){ localStorage.setItem('biz_user',JSON.stringify(u)); setUser(u); }
+  function logout(){ localStorage.removeItem('biz_user'); setUser(null); }
+
+  // Teacher: checks local code
+  function loginTeacher(code){
+    if(code===TCH_CODE){ saveUser({role:'teacher'}); return true; }
+    return false;
+  }
+  // Student: async lookup by loginCode in Firestore
+  async function loginStudent(code){
+    if(!code.trim()) return false;
+    try{
+      const snap=await window._db.collection(C.stu).where('loginCode','==',code.trim()).where('status','==','approved').get();
+      if(!snap.empty){
+        const d=snap.docs[0].data();
+        saveUser({role:'student',uid:snap.docs[0].id,name:d.name});
+        return true;
+      }
+    }catch(e){ console.error('loginStudent',e); }
+    return false;
+  }
+
+  // ── Data state ──────────────────────────────────────────────────────────
+  const [students,setStudents]=React.useState([]);
+  const [lessons,setLessons]=React.useState([]);
+  const [events,setEvents]=React.useState([]);
+  const [payments,setPayments]=React.useState([]);
+  const [pendingStudents,setPendingStudents]=React.useState([]);
+  const [baseSlots,setBaseSlots]=React.useState([]);
+  const [publishedWeeks,setPublishedWeeks]=React.useState({});
+  const [gcalUrl,setGcalUrlState]=React.useState(()=>localStorage.getItem('biz_gcal_url')||'');
+
+  // ── Date constants ───────────────────────────────────────────────────────
+  const TODAY=today();
+  const THIS_WK=wkS(TODAY);
+  const NEXT_WK=addD(THIS_WK,7);
+  const pubThis=publishedWeeks[THIS_WK];
+  const pubNext=publishedWeeks[NEXT_WK];
+  const db=window._db;
+
+  // ── Subscriptions ────────────────────────────────────────────────────────
+  React.useEffect(()=>{
+    if(!user) return;
+    const unsubs=[];
+    if(user.role==='teacher'){
+      unsubs.push(db.collection(C.stu).onSnapshot(s=>setStudents(s.docs.map(d=>({...d.data(),id:d.id})))));
+      unsubs.push(db.collection(C.pend).onSnapshot(s=>setPendingStudents(s.docs.map(d=>({...d.data(),id:d.id})))));
+    } else {
+      unsubs.push(db.collection(C.stu).where('uid','==',user.uid).onSnapshot(s=>setStudents(s.docs.map(d=>({...d.data(),id:d.id})))));
+    }
+    unsubs.push(db.collection(C.les).onSnapshot(s=>{
+      const all=s.docs.map(d=>({...d.data(),id:d.id}));
+      // Deduplicate on load: keep non-generated over generated, then earliest id
+      const seen=new Set(); const deduped=[];
+      [...all].sort((a,b)=>{const ag=a.generated?1:0,bg=b.generated?1:0;if(ag!==bg)return ag-bg;return a.id.localeCompare(b.id);})
+        .forEach(l=>{const k=`${l.sid||''}_${l.date}_${l.time||''}`;if(!seen.has(k)){seen.add(k);deduped.push(l);}});
+      setLessons(deduped);
+    }));
+    unsubs.push(db.collection(C.ev).onSnapshot(s=>setEvents(s.docs.map(d=>({...d.data(),id:d.id})).sort((a,b)=>(a.date||'').localeCompare(b.date||'')))));
+    unsubs.push(db.collection(C.pay).onSnapshot(s=>setPayments(s.docs.map(d=>({...d.data(),id:d.id})))));
+    unsubs.push(db.collection(C.meta).doc('baseSlots').onSnapshot(s=>{
+      if(s.exists){
+        // Normalize: support both {di,t,sid} (new) and {day,time,studentId} (legacy)
+        const raw=s.data().slots||[];
+        setBaseSlots(raw.map(slot=>({
+          id:slot.id||String(Math.random()),
+          di:slot.di!=null?slot.di:(slot.day!=null?slot.day:null),
+          t:slot.t||slot.time||null,
+          sid:slot.sid||slot.studentId||null,
+        })).filter(slot=>slot.di!=null&&slot.t));
+      }
+    }));
+    unsubs.push(db.collection(C.pub).onSnapshot(s=>{ const m={}; s.docs.forEach(d=>{m[d.id]=d.data();}); setPublishedWeeks(m); }));
+    return ()=>unsubs.forEach(u=>u());
+  },[user]);
+
+  // ── Student CRUD ─────────────────────────────────────────────────────────
+  async function updStudent(id,data){ await db.collection(C.stu).doc(id).update(data); }
+  async function deleteStudent(id){
+    const batch=db.batch();
+    batch.delete(db.collection(C.stu).doc(id));
+    const ls=await db.collection(C.les).where('studentId','==',id).get();
+    ls.docs.forEach(d=>batch.delete(d.ref));
+    await batch.commit();
+  }
+  async function approveStudent(pend){
+    const {id,name,phone,di,t,parent}=pend;
+    const code='STU'+Math.random().toString(36).slice(2,7).toUpperCase();
+    const phone2=(phone||'').replace(/[^0-9]/g,'');
+    const finalCode=phone2.length>=6?phone2:code;
+    await db.collection(C.stu).doc(id).set({
+      uid:id, name, phone:phone||'', parent:parent||'',
+      type:(di!=null)?'fixed':'flexible',
+      di:di!=null?di:null,
+      t:t||null,
+      role:'student', status:'approved', loginCode:finalCode,
+      pricePerLesson:0, createdAt:firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await db.collection(C.pend).doc(id).delete();
+    setApprovedInfo({name,code});
+  }
+  async function rejectStudent(id){ await db.collection(C.pend).doc(id).delete(); }
+  function clearApprovedInfo(){ setApprovedInfo(null); }
+
+  // ── Lesson CRUD ──────────────────────────────────────────────────────────
+  async function addLesson(data){
+    const ref=await db.collection(C.les).add({...data,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+    if(gcalUrl&&data.status==='scheduled'&&data.sid&&data.date&&data.time)
+      await syncLessonToGCal('create',{...data,id:ref.id});
+  }
+  async function updLesson(id,data){
+    await db.collection(C.les).doc(id).update(data);
+    if(gcalUrl&&data.status){
+      const l=lessons.find(l=>l.id===id);
+      if(l){
+        const cancelled=['cancelled_justified','cancelled_unjustified','teacher_cancelled','moved','no_show'];
+        if(cancelled.includes(data.status)) await syncLessonToGCal('delete',l);
+      }
+    }
+  }
+
+  // ── Event CRUD ───────────────────────────────────────────────────────────
+  async function addEvent(data){
+    const ref=await db.collection(C.ev).add({...data,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+    if(gcalUrl) await syncEventToGCal('create',{id:ref.id,...data});
+    return ref.id;
+  }
+  async function updEvent(id,data){
+    await db.collection(C.ev).doc(id).update(data);
+    if(gcalUrl){
+      const oldEv=events.find(e=>e.id===id)||{};
+      // מחק ישן ויצור חדש — מטפל נכון בשינוי תאריך (action:'update' לא עובד כשהתאריך השתנה)
+      if(oldEv.date) await syncEventToGCal('delete',oldEv);
+      await syncEventToGCal('create',{...oldEv,...data,id});
+    }
+  }
+  async function deleteEvent(id){
+    if(gcalUrl){
+      // תיקון: מעביר את כל נתוני האירוע כולל תאריך כדי שהסקריפט יוכל למצוא אותו
+      const ev=events.find(e=>e.id===id);
+      await syncEventToGCal('delete',ev||{id});
+    }
+    await db.collection(C.ev).doc(id).delete();
+  }
+
+  // ── Payment CRUD ─────────────────────────────────────────────────────────
+  async function setPayment(studentId,month,amount,note){
+    const docId=`${studentId}_${month}`;
+    if(amount===null||amount===''||amount===undefined){
+      await db.collection(C.pay).doc(docId).delete();
+    } else {
+      await db.collection(C.pay).doc(docId).set({studentId,month,amount:Number(amount),note:note||'',paidAt:firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+    }
+  }
+
+  // ── Base slots ───────────────────────────────────────────────────────────
+  async function addBaseSlot(slot){
+    await db.collection(C.meta).doc('baseSlots').set({slots:[...baseSlots,{...slot,id:Date.now().toString()}]},{merge:true});
+  }
+  async function removeBaseSlot(slotId){
+    await db.collection(C.meta).doc('baseSlots').set({slots:baseSlots.filter(s=>s.id!==slotId)},{merge:true});
+  }
+  async function moveBaseSlot(slotId,newDay,newTime){
+    await db.collection(C.meta).doc('baseSlots').set({slots:baseSlots.map(s=>s.id===slotId?{...s,day:newDay,time:newTime}:s)},{merge:true});
+  }
+  async function fixOrphanedSlot(lesId,newDay,newTime){ await db.collection(C.les).doc(lesId).update({day:newDay,time:newTime,orphaned:false}); }
+  async function changeToFixed(studentId,di,t){
+    await db.collection(C.stu).doc(studentId).update({type:'fixed',di,t});
+    await addBaseSlot({sid:studentId,di,t});
+  }
+  async function changeToFlexible(studentId){
+    await db.collection(C.stu).doc(studentId).update({type:'flexible',di:null,t:null});
+    const slot=baseSlots.find(s=>s.sid===studentId);
+    if(slot) await removeBaseSlot(slot.id);
+  }
+
+  // ── Week publishing ──────────────────────────────────────────────────────
+  async function pubWeek(wkDate,cancelledIds=[],blockedSlots=[],extraSlots=[],note=''){
+    // תיקון: מייצר שיעורים לשבוע הספציפי הזה בלבד (לא לכל העתיד)
+    const wkLessons=genLessons(students,wkDate).filter(l=>inWk(l.date,wkDate));
+    const batch=db.batch();
+    // תיקון: מוחק לפי טווח תאריכים (weekStart לא נשמר בשיעורים שנוצרו)
+    const existing=lessons.filter(l=>inWk(l.date,wkDate)&&l.generated);
+    existing.forEach(l=>batch.delete(db.collection(C.les).doc(l.id)));
+    wkLessons.forEach(l=>{
+      // תיקון: genLessons לא מחזיר di, משתמשים ב-pd(l.date).getDay()
+      const isBlocked=blockedSlots.some(b=>b.di===pd(l.date).getDay()&&b.t===l.time);
+      const isCancelled=cancelledIds.includes(l.sid);
+      const status=isBlocked||isCancelled?'teacher_cancelled':'scheduled';
+      const {id:_fakeid,...lClean}=l;
+      batch.set(db.collection(C.les).doc(),{...lClean,status,generated:true,weekStart:wkDate,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+    });
+    extraSlots.forEach(e=>{
+      let d=pd(wkDate);let _g=0;while(d.getDay()!==e.di&&_g++<8)d.setDate(d.getDate()+1);
+      const date=fd(d);
+      batch.set(db.collection(C.les).doc(),{sid:null,date,time:e.t,status:'scheduled',generated:true,weekStart:wkDate,createdAt:firebase.firestore.FieldValue.serverTimestamp()});
+    });
+    batch.set(db.collection(C.pub).doc(wkDate),{published:true,note:note||'',publishedAt:firebase.firestore.FieldValue.serverTimestamp()});
+    await batch.commit();
+    if(gcalUrl){
+      for(const l of wkLessons){
+        const isBlocked=blockedSlots.some(b=>b.di===pd(l.date).getDay()&&b.t===l.time);
+        const isCancelled=cancelledIds.includes(l.sid);
+        if(isBlocked||isCancelled){await syncLessonToGCal('delete',l);}
+        else{await syncLessonToGCal('upsert',l);}
+      }
+    }
+  }
+  async function clearPublishedWeek(wkDate){
+    const batch=db.batch();
+    lessons.filter(l=>inWk(l.date,wkDate)&&l.generated).forEach(l=>batch.delete(db.collection(C.les).doc(l.id)));
+    batch.delete(db.collection(C.pub).doc(wkDate));
+    await batch.commit();
+  }
+
+  // ── Cleanup duplicates ────────────────────────────────────────────────────
+  async function cleanDuplicateLessons(){
+    const seen=new Set();
+    const toDelete=[];
+    // Keep non-generated (manually set) over generated; among equals keep lexicographically first id
+    [...lessons].sort((a,b)=>{
+      const ag=a.generated?1:0, bg=b.generated?1:0;
+      if(ag!==bg) return ag-bg;
+      return a.id.localeCompare(b.id);
+    }).forEach(l=>{
+      const key=`${l.sid||''}_${l.date}_${l.time||''}`;
+      if(seen.has(key)) toDelete.push(l.id);
+      else seen.add(key);
+    });
+    if(!toDelete.length) return 0;
+    // Build all batches (max 500 per batch), then run 5 in parallel
+    const batches=[];
+    for(let i=0;i<toDelete.length;i+=500){
+      const chunk=toDelete.slice(i,i+500);
+      const batch=db.batch();
+      chunk.forEach(id=>batch.delete(db.collection(C.les).doc(id)));
+      batches.push(batch);
+    }
+    for(let i=0;i<batches.length;i+=5){
+      await Promise.all(batches.slice(i,i+5).map(b=>b.commit()));
+    }
+    return toDelete.length;
+  }
+
+  // ── GCal sync ────────────────────────────────────────────────────────────
+  function setGcalUrl(url){ localStorage.setItem('biz_gcal_url',url); setGcalUrlState(url); }
+  async function syncEventToGCal(action,ev){
+    if(!gcalUrl) return;
+    const et=ETYPES[ev.type]||{label:ev.type||''};
+    const title=`${et.label}${ev.title?' - '+ev.title:''}`;
+    const startISO=`${ev.date}T${ev.startTime||ev.time||'00:00'}:00`;
+    const endISO=`${ev.date}T${ev.endTime||ev.startTime||ev.time||'00:00'}:00`;
+    try{
+      await fetch(gcalUrl,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action,bizId:ev.id,title,start:startISO,end:endISO,location:ev.location||'',description:`${et.label}\n${ev.notes||''}`,color:'6'})});
+    }catch(e){ console.warn('GCal sync',e); }
+  }
+  async function syncLessonToGCal(action,l){
+    if(!gcalUrl)return;
+    const stu=students.find(s=>s.id===l.sid)||{name:'תלמיד'};
+    const endMin=t2m(l.time||'09:00')+(l.durationMins||45);
+    try{
+      await fetch(gcalUrl,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action,bizId:'L'+l.id,title:`שיעור - ${stu.name}`,start:`${l.date}T${l.time}:00`,end:`${l.date}T${m2t(endMin)}:00`,location:'',description:stu.name,color:'7'})});
+    }catch(e){console.warn('GCal lesson sync',e);}
+  }
+  async function syncWeekToGCal(wkDate){
+    if(!gcalUrl)return;
+    const wkLessons=lessons.filter(l=>inWk(l.date,wkDate)&&['scheduled','pending_cancel'].includes(l.status));
+    for(const l of wkLessons){ await syncLessonToGCal('create',l); }
+    for(const ev of events.filter(e=>inWk(e.date,wkDate))){ await syncEventToGCal('create',ev); }
+  }
+
+  // ── Context ───────────────────────────────────────────────────────────────
+  const me=user?.role==='student'?students.find(s=>s.uid===user.uid)||null:null;
+  const ctx={
+    user,me,students,lessons,events,payments,pendingStudents,baseSlots,publishedWeeks,
+    TODAY,THIS_WK,NEXT_WK,pubThis,pubNext,approvedInfo,gcalUrl,
+    updStudent,deleteStudent,approveStudent,rejectStudent,clearApprovedInfo,logout,
+    addLesson,updLesson,addEvent,updEvent,deleteEvent,setPayment,
+    pubWeek,clearPublishedWeek,addBaseSlot,removeBaseSlot,moveBaseSlot,fixOrphanedSlot,
+    changeToFixed,changeToFlexible,setGcalUrl,syncWeekToGCal,syncEventToGCal,syncLessonToGCal,
+    cleanDuplicateLessons
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  if(showReg) return <RegisterView db={db} onBack={()=>setShowReg(false)}/>;
+  if(!user) return <LoginView onT={loginTeacher} onS={loginStudent}/>;
+  if(user.role==='teacher') return <TeacherView ctx={ctx}/>;
+  if(user.role==='student') return <StudentView ctx={ctx}/>;
+  return null;
+}
+
+// ─── Bootstrap ───────────────────────────────────────────────────────────────
+if(!firebase.apps.length){ firebase.initializeApp(FB_CFG); }
+window._db=firebase.firestore();
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
